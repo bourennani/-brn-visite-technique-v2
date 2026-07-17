@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#EEF5E4"/>
+  <path d="M32 12 L54 32 L46 32 L46 52 L18 52 L18 32 L10 32 Z" fill="#3C6410"/>
+  <path d="M26 30 h10 a6 6 0 0 1 0 12 h-10 z M26 30 h9 a5 5 0 0 1 0 10 h-9 z" fill="#EEF5E4"/>
+  <text x="32" y="47" font-family="system-ui,sans-serif" font-size="18" font-weight="700"
+        fill="#EEF5E4" text-anchor="middle">B</text>
+</svg>
