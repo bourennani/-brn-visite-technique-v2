@@ -25,6 +25,10 @@ Un lot n'est **terminé** que si :
 
 ## Lot 0.1 — Filet de sécurité sur le cœur métier *(pré-requis absolu)*
 
+> **État : LIVRÉ.** Outillage Vitest en place (`npm test`), **70 tests** verts sur
+> le cœur pur : `src/lib/calc.test.js`, `travaux.test.js`, `profils.test.js`,
+> `store.test.js`. Build et comportement métier inchangés.
+
 **But** : geler le comportement métier **avant** de toucher à quoi que ce soit.
 
 - Introduire l'outillage de tests + CI (lint déjà présent : `npm run lint`).
