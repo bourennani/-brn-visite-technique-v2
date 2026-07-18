@@ -1,7 +1,7 @@
 {
   "name": "brn-visite-technique",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.4.1",
   "description": "Application de relevé et de métré sur chantier — BRN Group",
   "type": "module",
   "scripts": {

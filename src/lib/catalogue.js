@@ -34,19 +34,24 @@ export const TYPES = [
   { id: "cellier", label: "Cellier", Icon: Package },
   { id: "buanderie", label: "Buanderie", Icon: Package },
   { id: "veranda", label: "Véranda", Icon: Sun },
-  { id: "balcon", label: "Balcon", Icon: Sun, modules: ["exterieur"] },
-  { id: "terrasse", label: "Terrasse", Icon: Sun, modules: ["exterieur"] },
+  { id: "balcon", label: "Balcon", Icon: Sun, modules: ["exterieur"], cat: "ext" },
+  { id: "terrasse", label: "Terrasse", Icon: Sun, modules: ["exterieur"], cat: "ext" },
   { id: "garage", label: "Garage", Icon: Car },
   { id: "cave", label: "Cave", Icon: Warehouse },
   { id: "soussol", label: "Sous-sol", Icon: Warehouse },
   { id: "combles", label: "Combles", Icon: Layers, modules: ["toiture"] },
   { id: "grenier", label: "Grenier", Icon: Layers },
   { id: "escalier", label: "Escalier", Icon: ArrowUpDown },
-  { id: "facade", label: "Façade", Icon: Building2, modules: ["facade"] },
-  { id: "toiture", label: "Toiture", Icon: Home, modules: ["toiture"] },
-  { id: "jardin", label: "Jardin", Icon: Trees, modules: ["exterieur"] },
+  { id: "facade", label: "Façade", Icon: Building2, modules: ["facade"], cat: "ext" },
+  { id: "toiture", label: "Toiture", Icon: Home, modules: ["toiture"], cat: "ext" },
+  { id: "jardin", label: "Jardin", Icon: Trees, modules: ["exterieur"], cat: "ext" },
   { id: "technique", label: "Local technique", Icon: Wrench },
   { id: "communes", label: "Parties communes", Icon: Building2 },
+
+  { id: "facade_avant", label: "Façade avant", Icon: Building2, modules: ["facade"], cat: "ext" },
+  { id: "facade_arriere", label: "Façade arrière", Icon: Building2, modules: ["facade"], cat: "ext" },
+  { id: "pignon", label: "Pignon", Icon: Building2, modules: ["facade"], cat: "ext" },
+  { id: "cour", label: "Cour", Icon: Trees, modules: ["exterieur"], cat: "ext" },
 ];
 
 /* ---- Formes de zones ---- */
@@ -127,10 +132,16 @@ export const RETOURS = [
 
 /* ---- Revêtements de sol ---- */
 export const REVETEMENTS = [
-  "Carrelage", "Parquet stratifié", "Parquet massif", "PVC", "Vinyle",
-  "Moquette", "Résine", "Béton ciré", "Autre",
+  "Carrelage", "Parquet stratifié", "Parquet contrecollé", "Parquet massif",
+  "Sol PVC", "Lino", "Moquette", "Résine",
+  /* conservés : des visites antérieures peuvent déjà les porter */
+  "Vinyle", "Béton ciré",
+  "Autre",
 ];
 export const MARGES = [0, 5, 7, 10, 12, 15];
+
+/** Unités proposées pour une prestation saisie à la main. */
+export const UNITES_LIBRES = ["m²", "ml", "m³", "u", "forfait", "h", "j"];
 
 export const OPTIONS_SOL = [
   { k: "sousMeubles", label: "Passe sous meubles de cuisine" },
@@ -319,7 +330,7 @@ export const LOTS = [
   ]},
   { id: "demo", nom: "Démolition / curage", items: [
     { id: "de_carrelage", label: "Dépose carrelage sol", unit: "m²", auto: "solNet" },
-    { id: "de_faience", label: "Dépose faïence", unit: "m²", auto: "faienceRetenu" },
+    { id: "de_faience", label: "Dépose faïence", unit: "m²", auto: "faienceNet" },
     { id: "de_parquet", label: "Dépose parquet / moquette", unit: "m²", auto: "solNet" },
     { id: "de_plinthes", label: "Dépose plinthes", unit: "ml", auto: "plinthesNet" },
     { id: "de_portes", label: "Dépose portes + huisseries", unit: "u", auto: "nbPortes" },
@@ -327,6 +338,8 @@ export const LOTS = [
     { id: "de_cloison", label: "Dépose cloison", unit: "m²" },
     { id: "de_doublage", label: "Dépose doublage / isolant", unit: "m²", auto: "doublageNet" },
     { id: "de_fauxplaf", label: "Dépose faux plafond", unit: "m²", auto: "plafondNet" },
+    { id: "de_toiledeverre", label: "Dépose de toile de verre", unit: "m²", auto: "mursNet" },
+    { id: "de_papierpeint", label: "Dépose de papier peint", unit: "m²", auto: "mursNet" },
     { id: "de_curage", label: "Curage complet", unit: "m²", auto: "solNet" },
     { id: "de_gravats", label: "Évacuation des gravats", unit: "m³" },
   ]},
@@ -351,7 +364,7 @@ export const LOTS = [
     { id: "mi_bloc", label: "Bloc-porte", unit: "u", auto: "nbPortes" },
     { id: "mi_coul", label: "Porte coulissante / galandage", unit: "u" },
     { id: "mi_placard", label: "Placard / dressing", unit: "ml" },
-    { id: "mi_plinthes", label: "Plinthes", unit: "ml", auto: "plinthesRetenu" },
+    { id: "mi_plinthes", label: "Plinthes", unit: "ml", auto: "plinthesNet" },
     { id: "mi_habillage", label: "Habillage / chambranle", unit: "u" },
   ]},
   { id: "menext", nom: "Menuiseries extérieures / vitrerie", items: [
@@ -368,7 +381,10 @@ export const LOTS = [
     { id: "se_structure", label: "Structure métallique", unit: "kg" },
   ]},
   { id: "sols", nom: "Revêtements de sol", items: [
-    { id: "so_revetement", label: "Revêtement de sol", unit: "m²", auto: "solRetenu" },
+    /* Le libellé de ces deux postes reçoit le type de revêtement choisi au
+       métré (voir typeRevetement / catalogueDeRoom dans lib/travaux.js). */
+    { id: "so_revetement", label: "Revêtement de sol", unit: "m²", auto: "solNet" },
+    { id: "so_depose", label: "Dépose du revêtement de sol", unit: "m²", auto: "solNet" },
     { id: "so_soucouche", label: "Sous-couche", unit: "m²", auto: "solNet" },
     { id: "so_seuil", label: "Barre de seuil", unit: "u" },
     { id: "so_nezmarche", label: "Nez de marche", unit: "u" },
@@ -377,7 +393,7 @@ export const LOTS = [
     { id: "mu_enduit", label: "Enduit / ratissage", unit: "m²", auto: "enduitNet" },
     { id: "mu_toile", label: "Toile de verre", unit: "m²", auto: "mursNet" },
     { id: "mu_papier", label: "Papier peint", unit: "m²", auto: "papierNet" },
-    { id: "mu_faience", label: "Faïence", unit: "m²", auto: "faienceRetenu" },
+    { id: "mu_faience", label: "Faïence", unit: "m²", auto: "faienceNet" },
     { id: "mu_parement", label: "Parement / pierre", unit: "m²" },
   ]},
   { id: "peint", nom: "Peinture", items: [
@@ -385,13 +401,26 @@ export const LOTS = [
     { id: "pe_murs", label: "Peinture murs", unit: "m²", auto: "peintureMurs" },
     { id: "pe_plafond", label: "Peinture plafond", unit: "m²", auto: "plafondNet" },
     { id: "pe_portes", label: "Peinture portes", unit: "u", auto: "nbPortes" },
-    { id: "pe_plinthes", label: "Peinture plinthes", unit: "ml", auto: "plinthesRetenu" },
+    { id: "pe_plinthes", label: "Peinture plinthes", unit: "ml", auto: "plinthesNet" },
     { id: "pe_boiseries", label: "Peinture boiseries", unit: "m²" },
     { id: "pe_metal", label: "Peinture métaux", unit: "m²" },
   ]},
   { id: "elec", nom: "Électricité / courant faible", items: [
+    /* Détail par pièce : chaque appareillage a son poste et sa quantité
+       propre, alimentés par le relevé électrique de la pièce. */
+    { id: "el_prise_simple", label: "Prise simple", unit: "u", auto: "nbPriseSimple" },
+    { id: "el_prise_double", label: "Prise double", unit: "u", auto: "nbPriseDouble" },
+    { id: "el_prise_triple", label: "Prise triple", unit: "u", auto: "nbPriseTriple" },
+    { id: "el_prise_spec", label: "Prise spécialisée", unit: "u", auto: "nbSpec" },
+    { id: "el_inter_simple", label: "Interrupteur simple", unit: "u", auto: "nbInterSimple" },
+    { id: "el_inter_double", label: "Interrupteur double", unit: "u", auto: "nbInterDouble" },
+    { id: "el_inter_triple", label: "Interrupteur triple", unit: "u", auto: "nbInterTriple" },
+    { id: "el_point_lumineux", label: "Point lumineux", unit: "u", auto: "nbPoints" },
+    { id: "el_spot", label: "Spot / ruban LED", unit: "u", auto: "nbSpots" },
+    { id: "el_rj45", label: "Prise RJ45", unit: "u", auto: "nbRJ45" },
+    { id: "el_faible", label: "Courant faible (TV, USB, détecteur…)", unit: "u", auto: "nbFaible" },
     { id: "el_tableau", label: "Tableau électrique", unit: "u" },
-    { id: "el_point", label: "Point électrique", unit: "u", auto: "nbPointsElec" },
+    { id: "el_point", label: "Point électrique (total)", unit: "u", auto: "nbPointsElec" },
     { id: "el_courantfaible", label: "Courant faible (RJ45 / TV)", unit: "u" },
     { id: "el_consuel", label: "Consuel", unit: "forfait" },
   ]},
@@ -409,21 +438,21 @@ export const LOTS = [
   ]},
   { id: "cuisine", nom: "Cuisine", items: [
     { id: "cu_meubles", label: "Meubles de cuisine", unit: "ml" },
-    { id: "cu_plan", label: "Plan de travail", unit: "ml" },
-    { id: "cu_credence", label: "Crédence", unit: "ml" },
-    { id: "cu_electro", label: "Électroménager", unit: "u" },
+    { id: "cu_plan", label: "Plan de travail", unit: "ml", auto: "cuisine.pdtLongueur" },
+    { id: "cu_credence", label: "Crédence", unit: "m²", auto: "cuisine.credenceSurface" },
+    { id: "cu_electro", label: "Électroménager", unit: "u", auto: "cuisine.nbElectro" },
   ]},
   { id: "sdb", nom: "Salle de bain", items: [
     { id: "sd_equip", label: "Équipement sanitaire", unit: "u" },
     { id: "sd_etancheite", label: "Étanchéité SPEC / SEL", unit: "m²" },
-    { id: "sd_faience", label: "Faïence", unit: "m²", auto: "faienceRetenu" },
+    { id: "sd_faience", label: "Faïence", unit: "m²", auto: "faienceNet" },
   ]},
   { id: "facade", nom: "Façade", items: [
-    { id: "fa_enduit", label: "Enduit / crépi", unit: "m²" },
-    { id: "fa_peinture", label: "Peinture façade", unit: "m²" },
-    { id: "fa_nettoyage", label: "Nettoyage / traitement", unit: "m²" },
+    { id: "fa_enduit", label: "Enduit / crépi", unit: "m²", auto: "facade.surfaceATraiter" },
+    { id: "fa_peinture", label: "Peinture façade", unit: "m²", auto: "facade.surfaceATraiter" },
+    { id: "fa_nettoyage", label: "Nettoyage / traitement", unit: "m²", auto: "facade.surfaceNette" },
     { id: "fa_fissure", label: "Reprise de fissures", unit: "ml" },
-    { id: "fa_echafaudage", label: "Échafaudage", unit: "m²" },
+    { id: "fa_echafaudage", label: "Échafaudage", unit: "m²", auto: "facade.surfaceBrute" },
   ]},
   { id: "couv", nom: "Couverture / charpente / zinguerie", items: [
     { id: "co_couverture", label: "Couverture", unit: "m²" },
@@ -460,3 +489,230 @@ export const TYPES_BIEN = ["Appartement", "Maison", "Immeuble", "Commerce", "Bur
 export const OCCUPATIONS = ["Vide", "Occupé", "Locataire en place", "Propriétaire occupant", "Meublé"];
 export const PRESENTS = ["Propriétaire", "Locataire", "Gestionnaire", "Syndic", "Aucun"];
 export const ORIGINES = ["Recommandation", "Site internet", "Appel entrant", "Assurance", "Client existant", "Prospection", "Autre"];
+
+/* ==================================================================== */
+/*  PROFIL FAÇADE                                                       */
+/* ==================================================================== */
+
+export const FACADE_ORIENTATIONS = ["Nord", "Sud", "Est", "Ouest", "Nord-est", "Nord-ouest", "Sud-est", "Sud-ouest", "Sur rue", "Sur cour", "Pignon"];
+
+export const FACADE_SUPPORTS = [
+  "Enduit ciment", "Enduit hydraulique", "Enduit monocouche", "Crépi", "Béton",
+  "Béton banché", "Brique", "Brique apparente", "Pierre", "Moellon", "Parpaing",
+  "Bardage bois", "Bardage métallique", "Bardage composite", "ITE existante", "Autre",
+];
+
+export const FACADE_ETATS = ["Bon état", "État moyen", "Dégradé", "Très dégradé"];
+
+export const FACADE_ACCES = ["Échafaudage fixe", "Échafaudage roulant", "Nacelle", "Cordiste", "Pied / échelle", "À définir"];
+
+/* Chaque pathologie porte son unité de métré : c'est elle qui pilote le chiffrage. */
+export const FACADE_PATHOLOGIES = [
+  { id: "microfissure", label: "Microfissure", unite: "ml" },
+  { id: "fissure", label: "Fissure", unite: "ml" },
+  { id: "fissure_trav", label: "Fissure traversante", unite: "ml" },
+  { id: "lezarde", label: "Lézarde", unite: "ml" },
+  { id: "joint_degrade", label: "Joint dégradé", unite: "ml" },
+  { id: "decollement", label: "Décollement d'enduit", unite: "m²" },
+  { id: "cloquage", label: "Cloquage / faïençage", unite: "m²" },
+  { id: "enduit_sonne", label: "Enduit sonnant à piocher", unite: "m²" },
+  { id: "humidite", label: "Humidité / infiltration", unite: "m²" },
+  { id: "remontees", label: "Remontées capillaires", unite: "m²" },
+  { id: "salpetre", label: "Salpêtre / efflorescence", unite: "m²" },
+  { id: "mousse", label: "Mousse / lichen", unite: "m²" },
+  { id: "salissure", label: "Salissure / pollution", unite: "m²" },
+  { id: "suie", label: "Trace de suie", unite: "m²" },
+  { id: "graffiti", label: "Graffiti / tag", unite: "m²" },
+  { id: "eclat", label: "Éclat / épaufrure", unite: "u" },
+  { id: "fer_apparent", label: "Fer apparent / oxydation", unite: "u" },
+  { id: "nid_gravier", label: "Nid de gravier", unite: "u" },
+  { id: "appui_degrade", label: "Appui dégradé", unite: "u" },
+  { id: "corniche_degradee", label: "Corniche dégradée", unite: "ml" },
+  { id: "descente_ep", label: "Descente EP défectueuse", unite: "u" },
+  { id: "scellement", label: "Scellement à reprendre", unite: "u" },
+  { id: "autre_patho", label: "Autre désordre", unite: "forfait" },
+];
+
+/* auto : clé du calcul façade qui alimente la quantité proposée */
+export const FACADE_TRAVAUX = [
+  { id: "fa_echafaudage", label: "Échafaudage", unite: "m²", auto: "surfaceBrute" },
+  { id: "fa_nacelle", label: "Nacelle", unite: "j" },
+  { id: "fa_protection", label: "Protections / bâchage", unite: "m²", auto: "surfaceBrute" },
+  { id: "fa_nettoyage_hp", label: "Nettoyage haute pression", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_nettoyage_bp", label: "Nettoyage basse pression", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_antimousse", label: "Traitement anti-mousse", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_decapage", label: "Décapage", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_piochage", label: "Piochage d'enduit", unite: "m²", auto: "reparationsM2" },
+  { id: "fa_rebouchage", label: "Rebouchage / reprise localisée", unite: "m²", auto: "reparationsM2" },
+  { id: "fa_fissures", label: "Ouverture et traitement de fissures", unite: "ml", auto: "reparationsMl" },
+  { id: "fa_pontage", label: "Pontage de fissures", unite: "ml", auto: "reparationsMl" },
+  { id: "fa_agrafage", label: "Agrafage de lézarde", unite: "ml" },
+  { id: "fa_ragreage", label: "Ragréage", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_enduit_rebouchage", label: "Enduit de rebouchage", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_enduit_finition", label: "Enduit de finition", unite: "m²", auto: "surfaceATraiter" },
+  { id: "fa_impermeabilisation", label: "Imperméabilisation (I4)", unite: "m²", auto: "surfaceATraiter" },
+  { id: "fa_hydrofuge", label: "Hydrofuge", unite: "m²", auto: "surfaceATraiter" },
+  { id: "fa_peinture", label: "Peinture de façade", unite: "m²", auto: "surfaceATraiter" },
+  { id: "fa_ravalement", label: "Ravalement complet", unite: "m²", auto: "surfaceATraiter" },
+  { id: "fa_ite", label: "Isolation thermique par l'extérieur", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_bardage", label: "Bardage", unite: "m²", auto: "surfaceNette" },
+  { id: "fa_soubassement", label: "Traitement du soubassement", unite: "m²", auto: "soubassement" },
+  { id: "fa_tableaux", label: "Reprise des tableaux", unite: "m²", auto: "tableaux" },
+  { id: "fa_bandeaux", label: "Reprise de bandeaux / corniches", unite: "ml", auto: "bandeaux" },
+  { id: "fa_appuis", label: "Reprise d'appuis", unite: "u", auto: "nbFenetres" },
+  { id: "fa_zinguerie", label: "Zinguerie / descentes EP", unite: "ml" },
+  { id: "fa_nettoyage_fin", label: "Nettoyage de fin de chantier", unite: "forfait" },
+];
+
+export const FACADE_FINITIONS = [
+  "Enduit taloché", "Enduit gratté", "Enduit écrasé", "Enduit projeté", "Enduit ribbé",
+  "RPE", "Peinture siloxane", "Peinture pliolite", "Peinture acrylique",
+  "Badigeon de chaux", "Lasure", "Aucune",
+];
+export const FACADE_ASPECTS = ["Taloché", "Gratté", "Écrasé", "Ribbé", "Roulé", "Lisse", "Rustique"];
+
+/* ==================================================================== */
+/*  PROFIL CUISINE                                                      */
+/* ==================================================================== */
+
+/* largeurs standard en cm — le métreur choisit d'un geste, ou saisit une largeur libre */
+export const CUISINE_MEUBLES = [
+  { id: "bas", label: "Meuble bas", rang: "bas", largeurs: [30, 40, 45, 50, 60, 80, 90, 100, 120], h: 70, p: 56 },
+  { id: "bas_tiroirs", label: "Meuble bas à tiroirs", rang: "bas", largeurs: [40, 50, 60, 80, 90, 120], h: 70, p: 56 },
+  { id: "sous_evier", label: "Meuble sous-évier", rang: "bas", largeurs: [60, 80, 90, 120], h: 70, p: 56 },
+  { id: "angle_bas", label: "Meuble d'angle bas", rang: "bas", largeurs: [90, 100, 110], h: 70, p: 56 },
+  { id: "meuble_four", label: "Meuble four / micro-ondes", rang: "colonne", largeurs: [60], h: 200, p: 56 },
+  { id: "haut", label: "Meuble haut", rang: "haut", largeurs: [30, 40, 45, 50, 60, 80, 90, 100, 120], h: 70, p: 35 },
+  { id: "haut_vitre", label: "Meuble haut vitré", rang: "haut", largeurs: [40, 50, 60, 80], h: 70, p: 35 },
+  { id: "angle_haut", label: "Meuble d'angle haut", rang: "haut", largeurs: [60, 65, 90], h: 70, p: 35 },
+  { id: "hotte_meuble", label: "Meuble hotte", rang: "haut", largeurs: [60, 90], h: 35, p: 35 },
+  { id: "colonne", label: "Colonne", rang: "colonne", largeurs: [40, 50, 60], h: 200, p: 56 },
+  { id: "colonne_frigo", label: "Colonne réfrigérateur", rang: "colonne", largeurs: [60], h: 200, p: 56 },
+  { id: "ilot", label: "Îlot", rang: "ilot", largeurs: [120, 150, 180, 200, 240], h: 90, p: 90 },
+  { id: "bar", label: "Bar / retour", rang: "ilot", largeurs: [90, 120, 150], h: 105, p: 60 },
+  { id: "etagere", label: "Étagère", rang: "haut", largeurs: [60, 80, 100, 120], h: 4, p: 25 },
+  { id: "casserolier", label: "Casserolier", rang: "bas", largeurs: [40, 50, 60, 80, 90, 120], h: 70, p: 56 },
+  { id: "meuble_plaque", label: "Meuble plaque", rang: "bas", largeurs: [60, 80, 90], h: 70, p: 56 },
+  { id: "meuble_lv", label: "Meuble lave-vaisselle", rang: "bas", largeurs: [45, 60], h: 70, p: 56 },
+  { id: "meuble_mo", label: "Meuble micro-ondes", rang: "haut", largeurs: [60], h: 40, p: 35 },
+  { id: "sur_mesure", label: "Meuble sur mesure", rang: "bas", largeurs: [], h: 70, p: 56 },
+  { id: "meuble_perso", label: "Autre élément", rang: "bas", largeurs: [], h: 70, p: 56 },
+  /* Accessoires : comptés à part. Une joue n'est pas un meuble bas et ne doit
+     entrer ni dans le nombre de meubles ni dans la largeur cumulée. */
+  { id: "joue", label: "Joue de finition", rang: "accessoire", largeurs: [], h: 70, p: 56 },
+  { id: "fileur", label: "Fileur", rang: "accessoire", largeurs: [3, 5, 8, 10], h: 70, p: 2 },
+  { id: "plinthe_cuisine", label: "Plinthe de cuisine", rang: "accessoire", largeurs: [], h: 15, p: 2 },
+];
+
+export const CUISINE_RANGS = [
+  { k: "bas", label: "Meubles bas" },
+  { k: "haut", label: "Meubles hauts" },
+  { k: "colonne", label: "Colonnes" },
+  { k: "ilot", label: "Îlot / bar" },
+  { k: "accessoire", label: "Joues, fileurs, plinthes" },
+];
+/* Rangs entrant dans le comptage des meubles (les accessoires en sont exclus). */
+export const CUISINE_RANGS_MEUBLE = ["bas", "haut", "colonne", "ilot"];
+
+export const CUISINE_ETATS = ["Existant", "À conserver", "À déposer", "À déplacer", "À remplacer", "À créer"];
+export const CUISINE_POSITIONS = ["Mur A", "Mur B", "Mur C", "Mur D", "Îlot", "Sous fenêtre", "Angle", "À définir"];
+export const CUISINE_IMPLANTATIONS = ["Linéaire", "En L", "En U", "Parallèle (couloir)", "Avec îlot", "Avec bar"];
+
+export const PDT_MATERIAUX = ["Stratifié", "Stratifié postformé", "Bois massif", "Compact (HPL)", "Quartz", "Granit", "Céramique", "Dekton", "Inox", "Béton ciré", "Autre"];
+export const PDT_CHANTS = ["Droit", "Postformé", "ABS", "Massif", "Poli", "Adouci"];
+export const PDT_DECOUPES = [
+  { k: "evier", label: "Découpe évier" },
+  { k: "plaque", label: "Découpe plaque" },
+  { k: "robinet", label: "Perçage robinet" },
+  { k: "angle", label: "Coupe d'angle" },
+  { k: "prise", label: "Découpe prise" },
+];
+export const PDT_EPAISSEURS = [12, 20, 22, 30, 38, 40, 60];
+
+export const CREDENCE_MATERIAUX = ["Faïence", "Verre laqué", "Stratifié", "Inox", "Quartz", "Céramique", "Compact", "Peinture lessivable", "Autre"];
+
+export const CUISINE_EQUIPEMENTS = [
+  "Évier", "Mitigeur", "Hotte aspirante", "Hotte décorative", "Plaque de cuisson",
+  "Four", "Four vapeur", "Micro-ondes", "Lave-vaisselle", "Réfrigérateur",
+  "Congélateur", "Cave à vin", "Éclairage sous meuble", "Éclairage plafond",
+  "Prise spécialisée", "Arrivée d'eau", "Évacuation", "Ventilation", "Poubelle encastrée",
+];
+
+/* auto : clé du calcul cuisine qui alimente la quantité proposée */
+export const CUISINE_TRAVAUX = [
+  { id: "cu_depose", label: "Dépose de la cuisine existante", unite: "forfait" },
+  { id: "cu_meubles_bas", label: "Fourniture et pose meubles bas", unite: "ml", auto: "mlBasProjet" },
+  { id: "cu_meubles_haut", label: "Fourniture et pose meubles hauts", unite: "ml", auto: "mlHautProjet" },
+  { id: "cu_colonnes", label: "Fourniture et pose colonnes", unite: "u", auto: "nbColonnesProjet" },
+  { id: "cu_ilot", label: "Îlot / bar", unite: "ml", auto: "mlIlotProjet" },
+  { id: "cu_plan", label: "Plan de travail", unite: "ml", auto: "pdtLongueur" },
+  { id: "cu_decoupes", label: "Découpes de plan de travail", unite: "u", auto: "pdtDecoupes" },
+  { id: "cu_credence", label: "Crédence", unite: "m²", auto: "credenceSurface" },
+  { id: "cu_plinthe", label: "Plinthe de cuisine", unite: "ml", auto: "plintheCuisine" },
+  { id: "cu_joues", label: "Joues de finition", unite: "u", auto: "nbJoues" },
+  { id: "cu_fileurs", label: "Fileurs", unite: "u", auto: "nbFileurs" },
+  { id: "cu_electro", label: "Pose électroménager", unite: "u", auto: "nbElectro" },
+  { id: "cu_raccords", label: "Raccordements eau / évacuation", unite: "u" },
+  { id: "cu_elec", label: "Alimentations électriques", unite: "u" },
+];
+
+
+/* ==================================================================== */
+/*  DÉRIVATION DES LOTS MÉTIER (v2.2)                                   */
+/*                                                                      */
+/*  Les lots « Façade » et « Cuisine » du catalogue de travaux sont      */
+/*  construits à partir des catalogues métier détaillés, pour qu'il      */
+/*  n'existe qu'une seule liste d'ouvrages par métier.                   */
+/*  Exécuté après toutes les déclarations : FACADE_TRAVAUX et            */
+/*  CUISINE_TRAVAUX sont initialisés à ce point.                         */
+/* ==================================================================== */
+
+const remplirLot = (lotId, source, prefixe) => {
+  const lot = LOTS.find((l) => l.id === lotId);
+  if (!lot) return;
+  lot.items = source.map((t) => ({
+    id: t.id,
+    label: t.label,
+    unit: t.unite,
+    ...(t.auto ? { auto: `${prefixe}.${t.auto}` } : {}),
+  }));
+};
+
+remplirLot("facade", FACADE_TRAVAUX, "facade");
+remplirLot("cuisine", CUISINE_TRAVAUX, "cuisine");
+
+/* ==================================================================== */
+/*  FAVORIS BRN GROUP (v2.2)                                            */
+/*  Les ouvrages les plus fréquents en rénovation Île-de-France.        */
+/*  Liste éditable : c'est un raccourci, pas une restriction.           */
+/* ==================================================================== */
+export const FAVORIS_BRN = [
+  "in_instal", "in_protec", "de_gravats",
+  "de_carrelage", "de_plinthes", "de_faience",
+  "pl_doublage", "pl_fauxplaf",
+  "so_revetement", "so_ragreage", "mi_plinthes",
+  "mu_faience", "pe_murs", "pe_plafond", "pe_prep",
+  "el_prises", "el_inter", "el_points",
+  "pb_sanitaires", "ch_radiateurs",
+  "cu_plan", "cu_credence",
+  "fa_echafaudage", "fa_nettoyage_hp", "fa_peinture", "fa_fissures",
+  "nettoyage_fin",
+];
+
+
+/* ==================================================================== */
+/*  CATÉGORIES DE TYPES (v2.3)                                          */
+/*  Une façade, une terrasse ou une toiture n'est pas une « pièce ».    */
+/*  Le classement ne change QUE le rangement à l'écran ; le profil       */
+/*  métier reste piloté par le typeId (voir lib/profils.js).            */
+/* ==================================================================== */
+TYPES.forEach((t) => { if (!t.cat) t.cat = "int"; });
+
+export const CATEGORIES = [
+  { k: "int", label: "Pièces", aide: "Intérieur du logement" },
+  { k: "ext", label: "Zones extérieures", aide: "Façades, toiture, extérieurs" },
+];
+
+export const typesDe = (cat) => TYPES.filter((t) => t.cat === cat);
+/** Une zone extérieure n'est pas comptée comme une pièce. */
+export const estExterieur = (typeId) => (TYPES.find((t) => t.id === typeId) || {}).cat === "ext";

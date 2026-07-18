@@ -51,6 +51,15 @@ input[type="number"]::-webkit-inner-spin-button {
 /* ------------------------------------------------------------------ */
 /*  Impression du rapport (A4)                                        */
 /* ------------------------------------------------------------------ */
+/* ==================================================================== */
+/*  IMPRESSION DU RAPPORT                                               */
+/*                                                                      */
+/*  Ces trois classes sont utilisées par l'écran Rapport depuis la      */
+/*  v2.0 mais n'avaient jamais été définies : les boutons de l'écran    */
+/*  se retrouvaient dans le PDF et une pièce pouvait être coupée en     */
+/*  deux pages. Elles sont désormais réelles.                           */
+/* ==================================================================== */
+
 @media print {
   html,
   body,
@@ -60,5 +69,63 @@ input[type="number"]::-webkit-inner-spin-button {
   }
   #root {
     padding: 0;
+  }
+
+  /* Tout ce qui appartient à l'écran, jamais au document remis au client. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Un bloc de pièce PEUT désormais se couper : depuis que la police est à
+     taille de lecture, une pièce avec photos dépasse souvent la page, et
+     l'interdiction produisait des pages à moitié vides. On protège ce qui
+     compte vraiment : jamais de coupure au milieu d'une rubrique, et jamais
+     un titre de pièce seul en bas de page. */
+  .rap-piece {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  .rap-piece > * {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .rap-titre {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Ni ligne seule en haut de page, ni ligne seule abandonnée en bas. */
+  p, li, td {
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Une grande section commence sur une page neuve si besoin. */
+  .rap-break {
+    break-before: auto;
+    page-break-before: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Les teintes de fond portent la hiérarchie du rapport : sans cela, les
+     navigateurs les suppriment et les bandeaux techniques disparaissent. */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Ni titre orphelin en bas de page, ni tableau décapité. */
+  h1, h2, h3, table, figure, img {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
   }
 }

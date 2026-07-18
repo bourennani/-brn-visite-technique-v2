@@ -1,8 +1,12 @@
 import { useState, useRef, useMemo } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Calculator, Camera, Check, ChevronDown, ChevronLeft, Image as ImageIcon, ListChecks, Minus, PenLine, Plus, RotateCcw, Ruler, Trash2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Building2, Calculator, Camera, Check, ChefHat, ChevronDown, ChevronLeft, Image as ImageIcon, ListChecks, Minus, PenLine, Plus, RotateCcw, Ruler, Trash2, X } from "lucide-react";
 import { StoredImg } from "../components/SketchPad";
-import { Btn, Chips, DynList, Line, NumField, QtyBox, Section, Toggle } from "../components/ui";
+import { Btn, Chips, DynList, Field, Line, NumField, QtyBox, Section, Toggle } from "../components/ui";
 import { AUTO, VALIDE, calcOuverture, calcRoom, calcZone, fmt, qValider, uid, validateRoom } from "../lib/calc";
+import { profilDe, sectionVisible, equipVisible, lotsVisibles, PROFILS_LISTE } from "../lib/profils";
+import FacadeBlock from "../components/FacadeBlock";
+import CuisineBlock from "../components/CuisineBlock";
+import TravauxTab from "../components/TravauxTab";
 import { ELEC_CAT, ELEC_EMPLACEMENTS, ELEC_HAUTEURS, ELEC_POSES, ENTRAXES, EQUIPEMENTS, ETATS_EQUIP, FIELD_LABELS, FORMES, G_DARK, G_LIGHT, G_MID, G_PALE, INK, INTERVENTIONS, LOTS, LOTS_DEDUC, MODES_PLAFOND, OPTIONS_SOL, OSSATURES, PLAQUES, PREPARATIONS, PRESETS_ZONE, RETOURS, REVETEMENTS, SUPPORTS_PEINTURE, TYPES_OUV, n } from "../lib/catalogue";
 import { Store, compressImage, forgetUrl, newOuverture, newZone } from "../lib/store";
 
@@ -393,8 +397,10 @@ function EquipBlock({ fam, room, update }) {
 
 /* -------------------------------------------------------------------- */
 
-export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, hasNext, toast }) {
+export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, hasNext, toast, visite }) {
   const [tab, setTab] = useState("metre");
+  const [tousLots, setTousLots] = useState(false);
+  const [ajoutLot, setAjoutLot] = useState(false);
   const c = useMemo(() => calcRoom(room), [room]);
   const errs = useMemo(() => validateRoom(room), [room]);
   const fileRef = useRef(null);
@@ -474,13 +480,22 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
   };
   const setT = (id, k, v) => update({ ...room, travaux: { ...room.travaux, [id]: { ...room.travaux[id], [k]: v } } });
 
-  const tabs = [
-    { id: "metre", label: "Métré", Icon: Ruler },
-    { id: "travaux", label: "Travaux", Icon: ListChecks },
-    { id: "medias", label: "Médias", Icon: Camera },
-    { id: "notes", label: "Notes", Icon: PenLine },
-  ];
+  /* --- Profil métier : c'est lui qui décide de ce qui est pertinent --- */
+  const profil = profilDe(room);
+  const TABS_DISPO = {
+    metre: { id: "metre", label: "Métré", Icon: Ruler },
+    facade: { id: "facade", label: "Façade", Icon: Building2 },
+    cuisine: { id: "cuisine", label: "Cuisine", Icon: ChefHat },
+    travaux: { id: "travaux", label: "Travaux", Icon: ListChecks },
+    medias: { id: "medias", label: "Médias", Icon: Camera },
+    notes: { id: "notes", label: "Notes", Icon: PenLine },
+  };
+  const tabs = profil.onglets.map((k) => TABS_DISPO[k]).filter(Boolean);
 
+  /* Si l'onglet courant n'existe pas dans ce profil, on retombe sur le premier. */
+  const tabActif = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
+
+  const voir = (k) => sectionVisible(room, k);
   const modLots = (room.modules || []).map((m) => EQUIPEMENTS[m]).filter(Boolean);
 
   return (
@@ -490,14 +505,14 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className="flex-1 h-10 rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold"
-              style={tab === t.id ? { backgroundColor: G_DARK, color: "#fff" } : { backgroundColor: "#fff", color: "#57534E", border: "2px solid #E7E5E4" }}>
+              style={tabActif === t.id ? { backgroundColor: G_DARK, color: "#fff" } : { backgroundColor: "#fff", color: "#57534E", border: "2px solid #E7E5E4" }}>
               <t.Icon size={13} /> {t.label}
             </button>
           ))}
         </div>
       </div>
 
-      {tab === "metre" && (
+      {tabActif === "metre" && (
         <div className="p-3 space-y-3">
           <div className="rounded-2xl bg-white border-2 border-stone-200 p-3 space-y-2">
             <input value={room.nom} onChange={(e) => setPart("nom", e.target.value)}
@@ -554,7 +569,8 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
             </div>
           )}
 
-          <Section title="Zones" defaultOpen badge={room.zones.length}>
+          {voir("zones") && (
+            <Section title="Zones" defaultOpen badge={room.zones.length}>
             {room.zones.map((z, i) => (
               <ZoneCard key={z.id} z={z} i={i} canDelete={room.zones.length > 1}
                 onChange={(nz) => setPart("zones", room.zones.map((x) => (x.id === nz.id ? nz : x)))}
@@ -570,8 +586,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               <Plus size={18} /> Ajouter une zone
             </Btn>
           </Section>
+          )}
 
-          <Section title="Ouvertures" badge={room.ouvertures.length}>
+          {voir("ouvertures") && (
+            <Section title="Ouvertures" badge={room.ouvertures.length}>
             {room.ouvertures.map((o) => (
               <OuvCard key={o.id} o={o}
                 onChange={(no) => setPart("ouvertures", room.ouvertures.map((x) => (x.id === no.id ? no : x)))}
@@ -584,8 +602,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               ))}
             </div>
           </Section>
+          )}
 
-          <Section title="Murs" accent>
+          {voir("murs") && (
+            <Section title="Murs" accent>
             <div className="space-y-2">
               <div className="rounded-xl border-2 border-stone-100 p-2.5">
                 <Line k="Surface brute (périmètre × hauteur)" v={fmt(c.mursBrut)} u="m²" />
@@ -614,10 +634,18 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               </div>
             </div>
           </Section>
+          )}
 
-          <Section title="Sol" accent>
+          {voir("sol") && (
+            <Section title="Sol" accent>
             <div className="space-y-2">
               <Chips label="Revêtement" value={room.sol?.revetement} onChange={(v) => setPart("sol", { ...room.sol, revetement: v })} options={REVETEMENTS} />
+              {room.sol?.revetement === "Autre" && (
+                <Field label="Préciser le revêtement" value={room.sol?.revetementAutre ?? ""}
+                  onChange={(v) => setPart("sol", { ...room.sol, revetementAutre: v })}
+                  placeholder="Ex. Tomettes anciennes, jonc de mer…"
+                  hint="Ce texte nomme les postes du lot Revêtements de sol et apparaît dans le rapport." />
+              )}
               <div className="rounded-xl border-2 border-stone-100 p-2.5">
                 <Line k="Surface brute (zones ajoutées)" v={fmt(c.solBrut)} u="m²" />
                 <Line k="Zones déduites / trémies" v={fmt(c.solDeduit)} u="m²" neg />
@@ -644,8 +672,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
                 q={room.q?.sol} onQ={(v) => setQ("sol", v)} />
             </div>
           </Section>
+          )}
 
-          <Section title="Plafond" accent>
+          {voir("plafond") && (
+            <Section title="Plafond" accent>
             <div className="space-y-2">
               <Chips label="Traitement" value={room.plafond?.mode} onChange={(v) => setPart("plafond", { ...room.plafond, mode: v })} options={MODES_PLAFOND} />
               <div className="rounded-xl border-2 border-stone-100 p-2.5">
@@ -665,8 +695,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
                 q={room.q?.plafond} onQ={(v) => setQ("plafond", v)} />
             </div>
           </Section>
+          )}
 
-          <Section title="Plinthes" accent>
+          {voir("plinthes") && (
+            <Section title="Plinthes" accent>
             <div className="space-y-2">
               <div className="rounded-xl border-2 border-stone-100 p-2.5">
                 <Line k="Périmètre brut" v={fmt(c.plinthesBrut)} u="ml" />
@@ -683,8 +715,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
                 q={room.q?.plinthes} onQ={(v) => setQ("plinthes", v)} />
             </div>
           </Section>
+          )}
 
-          <Section title="Faïence" badge={(room.faience || []).length}>
+          {voir("faience") && (
+            <Section title="Faïence" badge={(room.faience || []).length}>
             <div className="space-y-2">
               {(room.faience || []).map((f, i) => {
                 const setF = (k, v) => setPart("faience", room.faience.map((x) => (x.id === f.id ? { ...x, [k]: v } : x)));
@@ -729,8 +763,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               )}
             </div>
           </Section>
+          )}
 
-          <Section title="Doublage / cloisons / isolation" badge={(room.doublages || []).length}>
+          {voir("doublages") && (
+            <Section title="Doublage / cloisons / isolation" badge={(room.doublages || []).length}>
             <div className="space-y-2">
               {(room.doublages || []).map((d, i) => {
                 const setD = (k, v) => setPart("doublages", room.doublages.map((x) => (x.id === d.id ? { ...x, [k]: v } : x)));
@@ -782,8 +818,10 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               )}
             </div>
           </Section>
+          )}
 
-          <Section title="Peinture / enduit">
+          {voir("peinture") && (
+            <Section title="Peinture / enduit">
             <div className="space-y-2">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wide text-stone-500 mb-1">Préparation</div>
@@ -831,12 +869,15 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
               </div>
             </div>
           </Section>
+          )}
 
-          <ElecBlock room={room} update={update} c={c} />
-          <EquipBlock fam="plomberie" room={room} update={update} />
-          <EquipBlock fam="chauffage" room={room} update={update} />
-          <EquipBlock fam="menuiseries" room={room} update={update} />
-          {(room.modules || []).map((m) => <EquipBlock key={m} fam={m} room={room} update={update} />)}
+          {equipVisible(room, "elec") && <ElecBlock room={room} update={update} c={c} />}
+          {equipVisible(room, "plomberie") && <EquipBlock fam="plomberie" room={room} update={update} />}
+          {equipVisible(room, "chauffage") && <EquipBlock fam="chauffage" room={room} update={update} />}
+          {equipVisible(room, "menuiseries") && <EquipBlock fam="menuiseries" room={room} update={update} />}
+          {(room.modules || [])
+            .filter((m) => equipVisible(room, m))
+            .map((m) => <EquipBlock key={m} fam={m} room={room} update={update} />)}
 
           <Section title="Résumé de la pièce" accent defaultOpen>
             <div className="grid grid-cols-2 gap-x-3">
@@ -868,86 +909,23 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
         </div>
       )}
 
-      {tab === "travaux" && (
-        <div className="p-3 space-y-2">
-          <div className="rounded-xl p-2 flex items-start gap-1.5" style={{ backgroundColor: G_PALE }}>
-            <Calculator size={13} style={{ color: G_DARK }} className="mt-0.5 shrink-0" />
-            <p className="text-[10px] text-stone-700 leading-snug">
-              Chaque ouvrage affiche sa quantité calculée. Saisissez une valeur retenue pour la remplacer — le calcul d'origine reste visible.
-            </p>
-          </div>
-          {LOTS.map((lot) => {
-            const nb = lot.items.filter((i) => room.travaux[i.id]?.on).length;
-            return (
-              <Section key={lot.id} title={lot.nom} badge={nb}>
-                <div className="space-y-1.5">
-                  {lot.items.map((item) => {
-                    const t = room.travaux[item.id];
-                    const on = !!t?.on;
-                    const calc = item.auto ? c[item.auto] || 0 : 0;
-                    const manuel = on && t.retenu !== undefined && t.retenu !== "";
-                    return (
-                      <div key={item.id} className="rounded-lg border-2 p-1.5" style={{ borderColor: on ? G_LIGHT : "#F5F5F4" }}>
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => toggleT(lot, item)} className="flex items-center gap-2 flex-1 min-w-0 min-h-[40px] text-left">
-                            <span className="w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0"
-                              style={on ? { backgroundColor: G_DARK, borderColor: G_DARK } : { borderColor: "#D6D3D1" }}>
-                              {on && <Check size={13} className="text-white" />}
-                            </span>
-                            <span className={`text-xs truncate ${on ? "font-bold text-stone-900" : "text-stone-600"}`}>{item.label}</span>
-                          </button>
-                          {on && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <input inputMode="decimal" value={t.retenu ?? ""} onChange={(e) => setT(item.id, "retenu", e.target.value)}
-                                placeholder={fmt(calc)}
-                                className="w-[64px] h-9 px-1.5 rounded-lg border-2 font-mono font-bold text-right text-xs"
-                                style={{ borderColor: manuel ? G_MID : "#D6D3D1" }} />
-                              <span className="text-[9px] font-mono text-stone-400 w-6">{item.unit}</span>
-                            </div>
-                          )}
-                        </div>
-                        {on && (
-                          <div className="mt-1.5 pt-1.5 border-t border-stone-100 space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[9px] text-stone-400 font-mono">
-                                Calculé {fmt(calc)} {item.unit} {item.auto ? `· ${item.auto}` : "· saisie libre"}
-                              </span>
-                              {manuel && (
-                                <button onClick={() => setT(item.id, "retenu", "")} className="text-[9px] font-bold flex items-center gap-1" style={{ color: G_MID }}>
-                                  <RotateCcw size={9} /> Réinitialiser
-                                </button>
-                              )}
-                            </div>
-                            <div className="flex gap-1 overflow-x-auto pb-0.5">
-                              {INTERVENTIONS.map((iv) => (
-                                <button key={iv} onClick={() => setT(item.id, "intervention", t.intervention === iv ? "" : iv)}
-                                  className="h-7 px-1.5 rounded text-[9px] font-bold border shrink-0"
-                                  style={t.intervention === iv ? { backgroundColor: G_DARK, borderColor: G_DARK, color: "#fff" } : { backgroundColor: "#fff", borderColor: "#E7E5E4", color: "#A8A29E" }}>
-                                  {iv}
-                                </button>
-                              ))}
-                            </div>
-                            <div className="grid grid-cols-2 gap-1">
-                              <input value={t.materiau} onChange={(e) => setT(item.id, "materiau", e.target.value)} placeholder="Matériau / gamme"
-                                className="h-8 px-2 rounded border-2 border-stone-200 text-[11px]" />
-                              <input value={t.reference} onChange={(e) => setT(item.id, "reference", e.target.value)} placeholder="Référence"
-                                className="h-8 px-2 rounded border-2 border-stone-200 text-[11px]" />
-                            </div>
-                            <input value={t.obs} onChange={(e) => setT(item.id, "obs", e.target.value)} placeholder="Observations"
-                              className="w-full h-8 px-2 rounded border-2 border-stone-200 text-[11px]" />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </Section>
-            );
-          })}
+      {tabActif === "facade" && (
+        <div className="p-2 space-y-2.5">
+          <FacadeBlock room={room} update={update} c={c} />
         </div>
       )}
 
-      {tab === "medias" && (
+      {tabActif === "cuisine" && (
+        <div className="p-2 space-y-2.5">
+          <CuisineBlock room={room} update={update} c={c} />
+        </div>
+      )}
+
+      {tabActif === "travaux" && (
+        <TravauxTab room={{ ...room, __calc: c }} update={update} visite={visite} toast={toast} />
+      )}
+
+      {tabActif === "medias" && (
         <div className="p-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <Btn onClick={() => fileRef.current?.click()} className="h-16" disabled={busy}>
@@ -1015,7 +993,7 @@ export function RoomScreen({ room, update, openSketch, onPrev, onNext, hasPrev, 
         </div>
       )}
 
-      {tab === "notes" && (
+      {tabActif === "notes" && (
         <div className="p-3 space-y-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-bold uppercase tracking-wide text-stone-500">Notes de la pièce — visibles sur le rapport</span>

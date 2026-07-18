@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Calculator, CheckCircle2, Clock, Copy, FileText, Folder, Home, Package, Plus, Search, Trash2 } from "lucide-react";
-import { Btn, Chips, Confirm, Field, Section, Select, Toggle } from "../components/ui";
+import { Btn, Chips, Confirm, Field, Section, Select, Toggle, Zone } from "../components/ui";
 import { calcProgression, calcRoom, calcVisite, fmt, uid, validateRoom } from "../lib/calc";
-import { G_DARK, G_LIGHT, G_MID, G_PALE, INK, OCCUPATIONS, ORIGINES, PRESENTS, TYPES, TYPES_BIEN } from "../lib/catalogue";
+import { ouvragesDeVisite } from "../lib/travaux";
+import { CATEGORIES, G_DARK, G_LIGHT, G_MID, G_PALE, INK, OCCUPATIONS, ORIGINES, PRESENTS, TYPES, TYPES_BIEN, typesDe } from "../lib/catalogue";
 
 /* ==================================================================== */
 /*  MODULE 6 — ÉCRANS : VISITES / INFOS / PIÈCES                        */
@@ -79,7 +80,7 @@ export function VisitesScreen({ visites, onOpen, onNew, onDup, onDel, onStatut }
                 <div className="flex items-center gap-3 text-[11px] text-stone-500 font-mono">
                   <span>{(v.rooms || []).length} pièce(s)</span>
                   <span>{fmt(c.totals.solNet, 1)} m²</span>
-                  <span>{c.ouvrages.length} ouvrage(s)</span>
+                  <span>{ouvragesDeVisite(v).length} ouvrage(s)</span>
                 </div>
                 <div className="mt-2 h-1.5 rounded-full bg-stone-100 overflow-hidden">
                   <div className="h-full rounded-full transition-all" style={{ width: `${p.pct}%`, backgroundColor: p.pct === 100 ? G_MID : G_LIGHT }} />
@@ -197,12 +198,31 @@ export function InfosScreen({ v, set }) {
             <Field label="Délai souhaité" value={v.chantier.delai} onChange={(x) => h("delai", x)} />
             <Field label="Budget annoncé" value={v.chantier.budget} onChange={(x) => h("budget", x)} />
           </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-stone-500">Observations générales</span>
-            <textarea value={v.chantier.observations} onChange={(x) => h("observations", x.target.value)}
-              className="w-full h-28 p-3 rounded-xl border-2 border-stone-300 focus:border-lime-700 focus:outline-none resize-none"
-              placeholder="Demande du client, priorités, contraintes…" />
-          </label>
+          <Zone
+            label="Demande précise du client"
+            value={v.chantier.demandeClient}
+            onChange={(x) => h("demandeClient", x)}
+            rows={5}
+            placeholder="Ex. Le client souhaite remplacer sa cuisine en conservant exactement la disposition actuelle, avec de nouveaux meubles, une crédence en quartz et le maintien de l'électroménager existant."
+            hint="Reprise telle quelle dans le rapport client."
+          />
+          <Zone
+            label="Contraintes ou souhaits particuliers"
+            value={v.chantier.contraintes}
+            onChange={(x) => h("contraintes", x)}
+            rows={4}
+            placeholder="Logement occupé, travaux avant une date, équipements à conserver, matériaux ou couleurs imposés, contraintes de copropriété, accès difficile…"
+          />
+          {/* Champ historique `observations` : conservé tel quel (les anciennes
+              visites gardent leur contenu), simplement nommé pour ce qu'il est. */}
+          <Zone
+            label="Observations générales BRN GROUP"
+            value={v.chantier.observations}
+            onChange={(x) => h("observations", x)}
+            rows={4}
+            placeholder="Premières observations du technicien lors de la visite…"
+            hint="Constat du métreur, repris dans le rapport."
+          />
         </div>
       </Section>
     </div>
@@ -242,7 +262,7 @@ export function RoomsScreen({ v, set, onOpen, onAdd, onReport, onRecap }) {
             { k: "Pièces", v: v.rooms.length },
             { k: "Sol", v: fmt(c.totals.solNet, 1) },
             { k: "Murs", v: fmt(c.totals.mursNet, 1) },
-            { k: "Ouvrages", v: c.ouvrages.length },
+            { k: "Ouvrages", v: ouvragesDeVisite(v).length },
           ].map((x) => (
             <div key={x.k} className="rounded-xl p-2" style={{ backgroundColor: INK }}>
               <div className="text-[8px] uppercase tracking-wider text-stone-500 font-bold">{x.k}</div>
@@ -345,20 +365,34 @@ export function TypesScreen({ onPick }) {
   return (
     <div className="p-3 pb-28">
       <p className="text-xs text-stone-500 mb-3">
-        Le type choisi ouvre les modules correspondants (cuisine, sanitaire, façade, toiture, extérieur).
+        Le type choisi ouvre les modules correspondants et masque tout ce qui ne concerne pas ce métier.
       </p>
-      <div className="grid grid-cols-3 gap-2">
-        {TYPES.map((t) => (
-          <button key={t.id} onClick={() => onPick(t)}
-            className="rounded-2xl bg-white border-2 border-stone-200 p-2.5 flex flex-col items-center gap-1.5 active:bg-lime-50 min-h-[84px] justify-center">
-            <t.Icon size={22} style={{ color: G_DARK }} />
-            <span className="text-[10px] font-bold text-stone-700 text-center leading-tight">{t.label}</span>
-            {t.modules && <span className="text-[7px] font-bold uppercase px-1 py-0.5 rounded" style={{ backgroundColor: G_PALE, color: G_DARK }}>module</span>}
-          </button>
-        ))}
-      </div>
+
+      {/* Une façade ou une terrasse n'est pas une pièce : les deux familles
+          sont désormais présentées séparément. */}
+      {CATEGORIES.map((cat) => (
+        <div key={cat.k} className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: G_DARK }}>
+              {cat.label}
+            </span>
+            <span className="text-[9px] text-stone-400">{cat.aide}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {typesDe(cat.k).map((t) => (
+              <button key={t.id} onClick={() => onPick(t)}
+                className="rounded-2xl bg-white border-2 p-2.5 flex flex-col items-center gap-1.5 active:bg-lime-50 min-h-[84px] justify-center"
+                style={{ borderColor: cat.k === "ext" ? G_LIGHT : "#E7E5E4" }}>
+                <t.Icon size={22} style={{ color: G_DARK }} />
+                <span className="text-[10px] font-bold text-stone-700 text-center leading-tight">{t.label}</span>
+                {t.modules && <span className="text-[7px] font-bold uppercase px-1 py-0.5 rounded" style={{ backgroundColor: G_PALE, color: G_DARK }}>module</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="mt-4 rounded-2xl bg-white border-2 border-dashed border-stone-300 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-stone-500 mb-2">Pièce personnalisée</div>
+        <div className="text-[11px] font-bold uppercase tracking-wide text-stone-500 mb-2">Pièce ou zone personnalisée</div>
         <div className="flex gap-2">
           <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Ex. Atelier, Réserve…"
             className="flex-1 h-[48px] px-3 rounded-xl border-2 border-stone-300 focus:border-lime-700 focus:outline-none" />

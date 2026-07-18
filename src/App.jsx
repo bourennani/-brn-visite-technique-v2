@@ -4,7 +4,7 @@ import { OBJ_LIB, SketchPad } from "./components/SketchPad";
 import { Toast } from "./components/ui";
 import { uid } from "./lib/calc";
 import { G_DARK, G_MID, G_PALE, n } from "./lib/catalogue";
-import { Store, dataUrlToBlob, forgetUrl, newOuverture, newRoom, newVisite } from "./lib/store";
+import { Store, dataUrlToBlob, forgetUrl, migrerVisite, newOuverture, newRoom, newVisite } from "./lib/store";
 import { RecapScreen, ReportScreen } from "./screens/Recap";
 import { RoomScreen } from "./screens/Room";
 import { InfosScreen, RoomsScreen, TypesScreen, VisitesScreen } from "./screens/Visites";
@@ -33,7 +33,9 @@ export default function App() {
       const m = await Store.init();
       setMode(m);
       const list = await Store.listVisites();
-      setVisites(list.filter((x) => x && x.id !== "__probe__"));
+      /* Migration douce : on complète les champs manquants à la lecture,
+         sans jamais réécrire la base ni perdre de données. */
+      setVisites(list.filter((x) => x && x.id !== "__probe__").map(migrerVisite));
       setReady(true);
     })();
   }, []);
@@ -224,7 +226,7 @@ export default function App() {
       )}
       {screen === "types" && v && <TypesScreen onPick={addRoom} />}
       {screen === "room" && room && (
-        <RoomScreen room={room} update={updateRoom} openSketch={(s) => setSketching(s || {})} toast={toast}
+        <RoomScreen room={room} update={updateRoom} visite={v} openSketch={(s) => setSketching(s || {})} toast={toast}
           hasPrev={rIdx > 0} hasNext={rIdx < v.rooms.length - 1}
           onPrev={() => setRoomId(v.rooms[rIdx - 1].id)} onNext={() => setRoomId(v.rooms[rIdx + 1].id)} />
       )}

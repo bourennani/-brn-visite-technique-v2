@@ -1,6 +1,6 @@
 # BRN Group — Application de visite technique
 
-**Version 2.0.1**
+**Version 2.4.1**
 
 Application de relevé et de métré de chantier, utilisable **hors ligne** sur iPhone et iPad.
 React + Vite + Tailwind, installable en PWA.
@@ -184,6 +184,229 @@ et données, ou désinstallez puis réinstallez l'icône.
 ---
 
 ## Historique des versions
+
+### 2.4.1 — confort de lecture du rapport
+
+Présentation seule. Aucun calcul, aucun ouvrage, aucune donnée, aucune
+architecture touchés : `calc.js`, `travaux.js`, `catalogue.js`, `store.js`,
+`profils.js`, `SketchPad.jsx`, `TravauxTab.jsx` et `Room.jsx` sont identiques à
+la v2.4.0. Trois fichiers modifiés : `screens/Recap.jsx` (fonction `ReportScreen`
+uniquement — l'écran de travail `RecapScreen` est inchangé),
+`components/RapportBlocs.jsx`, `index.css`.
+
+**Échelle typographique** — le corps du rapport passe de 9 px (6,75 pt à
+l'impression) à 14 px (10,5 pt) ; le plancher passe de 7 px (5,25 pt) à 11 px
+(8,25 pt). Titres de section et noms de pièce à 19 px, tableaux et valeurs
+techniques à 13 px, légendes de photos à 12 px.
+
+**Hiérarchie** — noms de pièce précédés d'un filet vert et détachés par un
+double filet ; titres de section en 19 px sur filet épais ; sous-titres en
+14 px espacés ; chiffres clés des bandeaux en 16 px monospace ; textes lus par
+le client en `leading-relaxed`.
+
+**Coupures de page** — `.rap-piece` interdisait toute coupure au milieu d'une
+pièce. À taille de lecture, une pièce avec photos dépasse souvent la page :
+la règle produisait des pages à moitié vides. Une pièce peut désormais se
+couper ; ce sont les rubriques qui sont protégées (`.rap-piece > *`), un titre
+de pièce ne reste jamais seul en bas de page (`.rap-titre`), et `orphans` /
+`widows` empêchent les lignes isolées. Les marges `@page` (12 mm / 10 mm) sont
+inchangées : la police n'est compensée par aucun resserrement.
+
+### 2.4.0 — curage, électricité détaillée, saisie manuelle, croquis
+
+Architecture inchangée. Aucune fonctionnalité retirée.
+
+**Lot Curage** — deux prestations ajoutées : « Dépose de toile de verre » et
+« Dépose de papier peint », en m², quantité reprise automatiquement de la surface
+nette des murs (`mursNet`), sélectionnables pièce par pièce.
+
+**Lot Électricité** — onze postes détaillés remplacent le comptage global :
+prise simple / double / triple, prise spécialisée, interrupteur simple / double /
+triple, point lumineux, spot, RJ45, courant faible. Chacun est alimenté par le
+relevé électrique de la pièce. Le poste « Point électrique (total) » est conservé
+pour les visites antérieures. Le rapport affiche le détail par pièce, jamais un
+total à la place.
+
+**Validation d'une quantité manuelle** — `TravauxTab.jsx` enregistrait la valeur
+**à chaque frappe** (`onChange` appelait `manuelPoste`). La saisie passe désormais
+par un brouillon local : rien n'est écrit tant que le bouton **Valider** n'est pas
+cliqué (ou Entrée). Un indicateur signale « Saisie non enregistrée » puis la
+quantité manuelle enregistrée avec le rappel du calcul automatique. Le bouton
+« Revenir à la quantité calculée » reste à côté.
+
+**Croquis** — correctif : l'effet de dimensionnement du canevas dépendait de
+`render`, dont l'identité change à chaque sélection ; sélectionner une forme
+**rétrécissait le canevas**, et toute forme située plus bas devenait inatteignable.
+L'espace du bandeau d'édition est maintenant réservé en permanence (hauteur fixe),
+donc la zone de dessin ne bouge plus jamais. Ajout d'un `ResizeObserver` (rotation
+de tablette, fenêtre redimensionnée), qui ne réécrit le canevas que si les
+dimensions ont réellement changé.
+
+**Lot Revêtements de sol** — le type choisi au métré nomme les postes :
+« Fourniture et pose de carrelage », « Dépose de sol PVC ». Liste complétée
+(parquet contrecollé, sol PVC, lino) et champ **Autre** en saisie libre. Seule la
+première lettre passe en minuscule, pour ne pas écrire « sol pvc ».
+
+**Prestations manuelles** — lot Démolition : libellé, quantité, unité
+(m², ml, m³, u, forfait, h, j), pièce et observation. Enregistrées dans la visite,
+modifiables, supprimables, marquées « saisie manuelle » au rapport et jamais
+recalculées.
+
+**Compatibilité** — migration douce : `prestations` et `sol.revetementAutre`
+initialisés à vide sur les visites antérieures, aucune donnée existante touchée.
+
+### 2.3.1 — rapport d'expertise
+
+Architecture inchangée. Seuls le rapport et sa mise en page évoluent.
+
+**Informations techniques compactes** — nouvelle primitive `Bandeau` : les chiffres
+clés s'affichent horizontalement sur une à deux lignes au lieu d'un tableau vertical.
+Chaque case disparaît si sa valeur est vide ou nulle ; le bandeau entier disparaît
+s'il ne reste aucune case. Contenu adapté au type de zone : pièce (sol, murs,
+plafond, plinthes, hauteur, ouvertures, volume) ; façade (largeur, hauteur, surface
+brute, ouvertures, surface nette, fenêtres, portes, tableaux, soubassement, bandeaux,
+surface à traiter, pathologies) — jamais de sol, plafond ni plinthes.
+
+**Relevé détaillé des interventions** — le « Quantitatif consolidé » est remplacé.
+Chaque pièce porte désormais sa propre section « Interventions retenues », groupée
+par lot, avec ses quantités propres. Aucune surface n'est fusionnée entre pièces.
+La consolidation n'intervient qu'au **Récapitulatif général des interventions**,
+en fin de rapport.
+
+**Identité BRN GROUP** — en-tête premium : logo (`public/logo-brn.png`, extrait du
+logo fourni), raison sociale, 204 avenue Gallieni 93140 Bondy, contact@brngroup.fr,
+www.brn-group.fr.
+
+**CSS d'impression** — correctif : `.no-print`, `.rap-piece` et `.rap-break` étaient
+utilisées par l'écran Rapport depuis la v2.0 mais **n'avaient jamais été définies**.
+Conséquences supprimées : les boutons de l'écran apparaissaient dans le PDF, et un
+bloc de pièce pouvait être coupé entre deux pages. Ajout de `print-color-adjust: exact`
+(sans quoi les navigateurs suppriment les fonds et les bandeaux perdent leur teinte),
+d'un format `@page A4 portrait` et des règles anti-coupure.
+
+### 2.3.0 — contexte, zones extérieures, rapport professionnel
+
+Aucune modification d'architecture. Profils, calculs, ouvrages, métrés, IndexedDB,
+PWA et hors ligne sont inchangés.
+
+**Informations générales** — deux champs ajoutés dans la section « Projet » existante :
+`demandeClient` (demande précise du client) et `contraintes` (contraintes ou souhaits
+particuliers). Le champ historique `observations` n'est pas dupliqué : il est
+simplement nommé « Observations générales BRN GROUP », son contenu et sa clé de
+stockage sont conservés. Les trois sont repris dans le rapport client.
+
+**Zones extérieures** — une façade n'est plus une pièce. Chaque type porte une
+catégorie (`cat: "int" | "ext"`) et le sélecteur présente deux familles :
+« Pièces » et « Zones extérieures ». Quatre types ajoutés : Façade avant,
+Façade arrière, Pignon, Cour. Le profil métier reste piloté par le `typeId`.
+
+**Rapport** — `src/components/RapportBlocs.jsx` :
+- `BlocFacade` : nom, support, dimensions, ouvertures, dégradations, réparations
+  localisées, finition, photos, observations. Aucune donnée intérieure.
+- `BlocPiece` : nom, constat, informations techniques, ouvertures, électricité,
+  cuisine (si profil cuisine), photos, observations.
+- Règle `aValeur()` : ni « 0 », ni « Aucun », ni « Non renseigné », ni tiret.
+  Une rubrique sans contenu disparaît entièrement.
+
+**Compatibilité** — migration douce : les deux nouveaux champs sont initialisés à
+vide sur les visites antérieures, aucune donnée existante n'est touchée.
+
+### 2.2.1 — le rapport lit toujours les données à jour
+
+**Symptôme** : le rapport ne reflétait pas les modifications de la visite.
+
+**Cause** : `calcVisite()` construisait les ouvrages à partir de **copies figées**
+stockées dans chaque poste au moment où il avait été coché — `t.label`, `t.unit`,
+`t.autoKey`, `t.retenu`. Ces champs étaient écrits par l'ancien `toggleT` (v2.1).
+Le nouvel onglet Travaux (v2.2) n'écrit plus que le choix du métreur
+(`on`, `mode`, `val`, `marge`, `obs`) : les quatre champs lus par le rapport
+n'existaient donc plus. Résultat : chaque poste sortait **sans libellé, sans unité
+et à quantité 0**, et aucune modification de la visite ne pouvait le faire bouger.
+Une quantité saisie manuellement (`t.val`) n'atteignait jamais le rapport, qui
+cherchait `t.retenu`.
+
+**Correctif** : l'agrégat figé est supprimé de `calcVisite()`. La source unique est
+`ouvragesDeVisite()` (`src/lib/travaux.js`) : elle relit le **catalogue vivant** à
+chaque appel et recalcule via `calcPoste()` — le même moteur que l'onglet Travaux.
+Un poste ne stocke plus que le choix du métreur.
+
+- Récap, rapport et compteurs sont branchés sur cette source unique.
+- Indicateur « Rapport actualisé le … » + bouton « Actualiser le rapport ».
+- Poste orphelin (métré source supprimé) : retiré s'il était automatique,
+  conservé s'il portait une saisie manuelle — une saisie ne disparaît jamais en silence.
+
+**Correctif annexe** : les marges §7 du sol visaient des postes inexistants
+(`so_carrelage`, `so_parquet`, `so_pvc`…). Le catalogue n'a qu'un poste générique
+« Revêtement de sol » : la marge suit désormais le **matériau choisi dans le métré**
+(`MARGE_REVETEMENT`). Ces marges ne s'appliquaient à rien en 2.2.0.
+
+### 2.2.0 — l'onglet Travaux se remplit tout seul
+
+Chaque poste reprend le métré de la pièce. Le métreur vérifie, valide, ou corrige.
+
+**Chaîne unique** : `métré net → marge du poste → quantité proposée → quantité retenue`.
+
+**Règle de marge (important)** : le poste part du métré **net**. Les marges de
+l'onglet Métré (sol, plinthes, faïence) servent à l'approvisionnement matière et
+restent affichées là-bas, mais ne sont **pas** réappliquées dans les travaux.
+Sans cette règle, un carrelage aurait porté 10 % (métré) × 10 % (poste) = 21 % de marge
+silencieuse. La marge est modifiable poste par poste.
+
+Marges par défaut : carrelage 10 %, parquet 8 %, PVC/plinthes 5 %, faïence 10 %,
+crédence 10 %, peinture / enduit / plan de travail / façade 0 %.
+
+- **4 statuts** : Automatique · À vérifier · Validé · Modifié manuellement.
+- Une quantité validée ou saisie n'est **jamais** écrasée : si le métré source change,
+  la nouvelle valeur calculée s'affiche en avertissement, sans remplacer.
+- Bouton « Revenir à la quantité calculée » sur chaque poste.
+- **46 correspondances** métré → poste (`src/lib/travaux.js`, table `ORIGINES`).
+- **Cuisine** : un poste par largeur (« Fourniture et pose meuble bas 60 cm — 4 u »),
+  et dépose du mobilier existant, générés depuis le module.
+- **Façade** : traitement général et réparations localisées restent deux postes distincts.
+- Filtrage par profil, recherche, favoris BRN GROUP, travaux récemment utilisés,
+  bouton « Afficher tous les travaux ».
+- Validation en masse par pièce, réinitialisation, compteur de postes à vérifier.
+- Contrôles de cohérence (quantité nulle, meuble sans largeur, crédence sans hauteur,
+  façade sans dimension, écart manuel > 25 %) : **avertissements uniquement**.
+- Traçabilité par poste (source, date de validation, dernière modification, ancienne
+  quantité), enregistrée dans IndexedDB.
+- **Migration douce** : les anciennes visites s'ouvrent ; un poste au format v2.0
+  (`{on, retenu}`) devient une saisie manuelle, sa quantité est préservée à l'identique.
+
+Non traité (versions suivantes) : bibliothèque de prix, main-d'œuvre, marges
+commerciales, nouveau rapport BRN GROUP.
+
+### 2.1.0 — profils métier
+
+Le **type de pièce** pilote désormais toute l'interface. Le profil est **dérivé du
+`typeId`**, jamais stocké : les visites créées avant cette version héritent
+automatiquement du bon profil, sans migration de données.
+
+Profils : `interieur`, `cuisine`, `sanitaire`, `facade`, `toiture`, `exterieur`,
+`technique` (voir `src/lib/profils.js`). Chacun décide des onglets, des rubriques
+de métré, des équipements, des lots et des modules affichés.
+
+- **Profil Façade** : onglet dédié. Masque sol, plafond, plinthes, faïence, doublage,
+  peinture intérieure, prises et équipements intérieurs. Affiche dimensions
+  (multi-façades, niveaux, façades identiques), support, accès, 23 pathologies avec
+  unité (m²/ml/u/forfait), 27 travaux de façade et finitions. Les ouvertures restent
+  et se déduisent de la surface.
+- **Profil Cuisine** : onglet dédié. Mobilier séparé **Existant / Projet**, 21 types de
+  meubles avec largeurs standard, plan de travail multi-tronçons, crédence multi-zones,
+  équipements.
+- **Filtrage des lots** + boutons « Afficher tous les lots » et « Ajouter
+  exceptionnellement un autre lot » (stocké dans `room.lotsExceptionnels`).
+- Ergonomie : recherche dans les catalogues, duplication d'élément, boutons +/−,
+  champs obligatoires signalés en orange.
+
+**Deux règles métier explicitement implémentées** :
+- la longueur de plan de travail est la **somme des tronçons**, jamais déduite de la
+  largeur des meubles ;
+- le **traitement général** de façade et les **réparations localisées** sont deux
+  quantités distinctes qui ne s'additionnent jamais.
+
+Non traité (prévu en 2.2) : automatisation complète de l'onglet Travaux et nouveau
+rapport BRN GROUP.
 
 ### 2.0.1 — correctif bloquant
 

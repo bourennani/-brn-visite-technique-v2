@@ -306,11 +306,31 @@ export function SketchPad({ initial, room, onSave, onClose, onSyncOuverture }) {
     [...shapes, ...(extra ? [extra] : [])].forEach((s) => draw(ctx, s, s.id === sel));
   }, [shapes, sel, draw, echelle]);
 
+  /* Le canevas suit son conteneur, et lui seul.
+     Auparavant cet effet dépendait de `render`, dont l'identité change à
+     chaque sélection : sélectionner une forme redimensionnait le canevas,
+     et toute forme située plus bas que la nouvelle hauteur devenait
+     inatteignable. Un ResizeObserver ne réagit qu'aux vrais changements de
+     taille — bandeau, rotation de tablette, fenêtre redimensionnée — et on
+     ne touche au canevas que si les dimensions ont réellement bougé (les
+     réécrire vide le dessin). */
   useEffect(() => {
-    const c = cvs.current;
-    const r = wrap.current.getBoundingClientRect();
-    c.width = r.width; c.height = r.height;
-    render();
+    const c = cvs.current, w = wrap.current;
+    if (!c || !w) return;
+    const ajuster = () => {
+      const r = w.getBoundingClientRect();
+      const lg = Math.max(1, Math.round(r.width));
+      const ht = Math.max(1, Math.round(r.height));
+      if (c.width !== lg || c.height !== ht) {
+        c.width = lg; c.height = ht;
+      }
+      render();
+    };
+    ajuster();
+    const ro = new ResizeObserver(ajuster);
+    ro.observe(w);
+    window.addEventListener("orientationchange", ajuster);
+    return () => { ro.disconnect(); window.removeEventListener("orientationchange", ajuster); };
   }, [render]);
 
   useEffect(() => { render(); }, [shapes, sel, render]);
@@ -577,14 +597,30 @@ export function SketchPad({ initial, room, onSave, onClose, onSyncOuverture }) {
         )}
       </div>
 
-      <div ref={wrap} className="flex-1 relative m-2 rounded-2xl overflow-hidden border-2 border-stone-300 bg-white">
+      {/* Zone de dessin. Sa hauteur ne dépend PAS du bandeau : l'espace de
+          celui-ci est réservé en permanence ci-dessous. Sans cela, ouvrir le
+          bandeau rétrécissait le canevas et toute forme tracée plus bas que
+          la nouvelle hauteur devenait inatteignable. */}
+      <div ref={wrap} className="flex-1 min-h-[200px] relative m-2 rounded-2xl overflow-hidden border-2 border-stone-300 bg-white">
         <canvas ref={cvs} className="absolute inset-0 touch-none"
           onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
           onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
       </div>
 
+      {/* Espace réservé au bandeau d'édition : toujours présent, hauteur fixe.
+          C'est ce qui garantit que le canevas ne bouge jamais et que le bas du
+          croquis reste utilisable, bandeau ouvert ou fermé. */}
+      <div className="h-[136px] shrink-0 mx-2 mb-2">
+      {!selShape && (
+        <div className="h-full rounded-xl border-2 border-dashed border-stone-200 flex items-center justify-center">
+          <span className="text-[10px] text-stone-400 px-3 text-center leading-snug">
+            Touchez une forme du croquis pour la modifier ou la déplacer.
+          </span>
+        </div>
+      )}
       {selShape && (
-        <div className="mx-2 mb-2 rounded-xl bg-white border-2 p-2" style={{ borderColor: G_LIGHT }}>
+        <div className="h-full overflow-y-auto rounded-xl bg-white border-2 p-2"
+          style={{ borderColor: G_LIGHT }}>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-bold uppercase" style={{ color: G_DARK }}>
               {selShape.k === "objet" ? selShape.label : selShape.k === "texte" ? "Zone de texte" : selShape.k === "cote" ? "Cote" : selShape.k}
@@ -685,6 +721,7 @@ export function SketchPad({ initial, room, onSave, onClose, onSyncOuverture }) {
           )}
         </div>
       )}
+      </div>
 
       {libOpen && (
         <div className="absolute inset-0 z-10 bg-black/40 flex items-end" onClick={() => setLibOpen(false)}>

@@ -265,6 +265,16 @@ export function calcRoom(room) {
   base.nbAValider = base.quantites.filter((x) => x.mode === AUTO && x.calc > 0).length;
   base.nbPerimes = base.quantites.filter((x) => x.perime).length;
 
+  /* --- Modules métier ---
+     Toujours calculés, même si la pièce n'a pas le profil correspondant :
+     les fonctions renvoient des zéros sur une pièce sans données (anciennes
+     visites incluses), ce qui garde `c` de forme stable pour l'UI. */
+  /* Le revêtement choisi dans le métré pilote la marge du poste de sol. */
+  base.revetement = room.sol?.revetement || "";
+
+  base.facade = calcFacade(room);
+  base.cuisine = calcCuisine(room);
+
   return base;
 }
 
@@ -294,32 +304,14 @@ export function calcVisite(visite) {
   };
   perRoom.forEach(({ c }) => Object.keys(totals).forEach((k) => (totals[k] += c[k] || 0)));
 
-  /* agrégat des ouvrages */
-  const ouvrages = [];
-  perRoom.forEach(({ room, c }) => {
-    Object.entries(room.travaux || {}).forEach(([id, t]) => {
-      if (!t.on) return;
-      const qteCalc = t.autoKey ? c[t.autoKey] || 0 : 0;
-      const qteRetenue = t.retenu !== undefined && t.retenu !== "" ? n(t.retenu) : qteCalc;
-      ouvrages.push({
-        id, roomId: room.id, roomNom: room.nom, lot: t.lot, lotNom: t.lotNom,
-        label: t.label, unit: t.unit, intervention: t.intervention || "",
-        materiau: t.materiau || "", reference: t.reference || "", obs: t.obs || "",
-        qteCalc, qteRetenue, manuel: t.retenu !== undefined && t.retenu !== "",
-      });
-    });
-  });
+  /* Les ouvrages NE SONT PLUS agrégés ici.
+     L'ancien code lisait des copies figées dans chaque poste (t.label, t.unit,
+     t.autoKey, t.retenu), écrites au moment où le poste était coché. Le rapport
+     affichait donc un état périmé — et, depuis la v2.2, plus rien du tout.
+     La source unique est désormais ouvragesDeVisite() dans lib/travaux.js :
+     elle relit le catalogue vivant et recalcule via calcPoste(). */
 
-  const parLot = {};
-  ouvrages.forEach((o) => {
-    const k = o.lotNom || "Autres";
-    if (!parLot[k]) parLot[k] = [];
-    const ex = parLot[k].find((x) => x.label === o.label && x.unit === o.unit);
-    if (ex) { ex.qteCalc += o.qteCalc; ex.qteRetenue += o.qteRetenue; ex.pieces.push(o.roomNom); }
-    else parLot[k].push({ ...o, pieces: [o.roomNom] });
-  });
-
-  return { perRoom, totals, ouvrages, parLot };
+  return { perRoom, totals };
 }
 
 /* --- Progression --- */
@@ -368,4 +360,222 @@ export function validateRoom(room) {
   if (c.plinthesNet === 0 && c.plinthesBrut > 0)
     errs.push({ lvl: "warn", txt: "Plinthes entièrement déduites" });
   return errs;
+}
+
+/* ==================================================================== */
+/*  MOTEUR FAÇADE                                                       */
+/*                                                                      */
+/*  Distinction centrale du métier :                                    */
+/*    - traitement GÉNÉRAL  -> surface nette de façade                  */
+/*    - réparations LOCALISÉES -> issues des pathologies relevées       */
+/*  Les deux ne s'additionnent jamais : une reprise ponctuelle se       */
+/*  chiffre en plus du traitement général, sur des lignes distinctes.   */
+/* ==================================================================== */
+
+export function calcFacade(room) {
+  const f = room?.facade || {};
+  const faces = f.faces || [];
+
+  let surfaceBrute = 0, largeurTotale = 0, soubassement = 0;
+  const hSoub = n(f.soubassementH);
+
+  faces.forEach((fa) => {
+    const L = n(fa.largeur);
+    const H = n(fa.hauteur);
+    const niv = Math.max(1, n(fa.niveaux) || 1);
+    const q = Math.max(1, n(fa.qte) || 1);
+    /* hParNiveau : la hauteur saisie est celle d'UN niveau, à multiplier.
+       Sinon la hauteur saisie est la hauteur totale de la façade. */
+    const hTot = fa.hParNiveau ? H * niv : H;
+    surfaceBrute += L * hTot * q;
+    largeurTotale += L * q;
+    if (f.soubassementTraite) soubassement += L * hSoub * q;
+  });
+
+  /* Ouvertures : on réutilise le moteur commun (mêmes règles que l'intérieur).
+     Le drapeau `deductions.murs` vaut « déduire de la surface de façade ». */
+  let ouvertures = 0, tableaux = 0, nbFenetres = 0, nbPortes = 0;
+  (room?.ouvertures || []).forEach((o) => {
+    const c = calcOuverture(o);
+    const q = Math.max(1, n(o.qte) || 1);
+    if ((o.deductions || {}).murs) ouvertures += c.surface;
+    tableaux += c.retours;
+    if (o.type === "Porte") nbPortes += q;
+    if (o.type === "Fenêtre" || o.type === "Baie vitrée" || o.type === "Verrière") nbFenetres += q;
+  });
+
+  const surfaceNette = Math.max(0, surfaceBrute - ouvertures);
+
+  /* Bandeaux, corniches, appuis : métrés linéaires indépendants. */
+  const bandeaux = (f.bandeaux || []).reduce(
+    (s, b) => s + n(b.longueur) * Math.max(1, n(b.qte) || 1), 0
+  );
+
+  /* Pathologies -> réparations localisées, ventilées par unité. */
+  const patho = f.pathologies || [];
+  const parUnite = (u) =>
+    patho.filter((p) => p.unite === u).reduce((s, p) => s + Math.max(0, n(p.qte)), 0);
+  const reparationsMl = parUnite("ml");
+  const reparationsM2 = parUnite("m²");
+  const reparationsU = parUnite("u");
+  const reparationsForfait = patho.filter((p) => p.unite === "forfait").length;
+
+  /* Détail par pathologie, pour le résumé et le rapport. */
+  const detailPatho = patho
+    .filter((p) => n(p.qte) > 0 || p.unite === "forfait")
+    .map((p) => ({
+      id: p.id, type: p.type, label: p.label, unite: p.unite,
+      qte: n(p.qte), localisation: p.localisation || "",
+    }));
+
+  /* Surface à traiter en finition : nette, + tableaux et soubassement si retenus. */
+  const surfaceATraiter = Math.max(
+    0,
+    surfaceNette +
+      (f.traiterTableaux ? tableaux : 0) +
+      (f.soubassementTraite && f.soubassementDansFinition ? 0 : 0)
+  );
+
+  const auto = {
+    surfaceBrute, ouvertures, surfaceNette, soubassement, tableaux, bandeaux,
+    surfaceATraiter, reparationsMl, reparationsM2, reparationsU, reparationsForfait,
+    nbFenetres, nbPortes, largeurTotale,
+  };
+
+  return {
+    ...auto,
+    nbFaces: faces.length,
+    nbPathologies: patho.filter((p) => n(p.qte) > 0 || p.unite === "forfait").length,
+    detailPatho,
+    /* garde-fou : jamais de NaN transmis à l'UI ni aux travaux */
+    ...Object.fromEntries(
+      Object.entries(auto).map(([k, v]) => [k, Number.isFinite(v) ? v : 0])
+    ),
+  };
+}
+
+/* ==================================================================== */
+/*  MOTEUR CUISINE                                                      */
+/*                                                                      */
+/*  Règle métier explicite : la longueur de plan de travail est la      */
+/*  SOMME DES TRONÇONS saisis. Elle n'est jamais déduite de la largeur  */
+/*  des meubles (débords, retours et jonctions faussent ce raccourci).  */
+/* ==================================================================== */
+
+export function calcCuisine(room) {
+  const cu = room?.cuisine || {};
+  const meubles = cu.meubles || [];
+
+  const larg = (m) => n(m.largeur);          // en cm
+  const qte = (m) => Math.max(1, n(m.qte) || 1);
+  const rangDe = (m) => m.rang || "bas";
+
+  const dePhase = (ph) => meubles.filter((m) => (m.phase || "existant") === ph);
+  const duRang = (list, rang) => list.filter((m) => rangDe(m) === rang);
+  const compte = (list) => list.reduce((s, m) => s + qte(m), 0);
+  const cumulML = (list) => list.reduce((s, m) => s + (larg(m) * qte(m)) / 100, 0);
+
+  /** Détail par largeur : « Meuble bas 60 cm : 3 ». */
+  const detailParLargeur = (list) => {
+    const map = new Map();
+    list.forEach((m) => {
+      const cle = `${m.label || m.type}|${larg(m)}`;
+      map.set(cle, (map.get(cle) || 0) + qte(m));
+    });
+    return [...map.entries()]
+      .map(([cle, nb]) => {
+        const [label, l] = cle.split("|");
+        return { label, largeur: n(l), nb };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label) || a.largeur - b.largeur);
+  };
+
+  const existant = dePhase("existant");
+  const projet = dePhase("projet");
+
+  /* Les accessoires sortent du périmètre « meubles » avant tout comptage. */
+  const sansAccessoires = (list) => list.filter((m) => rangDe(m) !== "accessoire");
+
+  const stats = (raw) => {
+    const list = sansAccessoires(raw);
+    return {
+    nbBas: compte(duRang(list, "bas")),
+    nbHaut: compte(duRang(list, "haut")),
+    nbColonnes: compte(duRang(list, "colonne")),
+    nbIlot: compte(duRang(list, "ilot")),
+    mlBas: cumulML(duRang(list, "bas")),
+    mlHaut: cumulML(duRang(list, "haut")),
+    mlColonnes: cumulML(duRang(list, "colonne")),
+    mlIlot: cumulML(duRang(list, "ilot")),
+    nbTotal: compte(list),
+    detail: detailParLargeur(list),
+    };
+  };
+
+  const sExistant = stats(existant);
+  const sProjet = stats(projet);
+
+  /* Accessoires : comptés séparément, JAMAIS dans les meubles bas/hauts
+     (une joue n'est pas un meuble et fausserait la largeur cumulée). */
+  const nbJoues = meubles.filter((m) => m.type === "joue").reduce((s, m) => s + qte(m), 0);
+  const nbFileurs = meubles.filter((m) => m.type === "fileur").reduce((s, m) => s + qte(m), 0);
+  const nbPlinthesCu = meubles.filter((m) => m.type === "plinthe_cuisine").reduce((s, m) => s + qte(m), 0);
+
+  /* Plan de travail : addition stricte des tronçons. */
+  const pdt = cu.pdt || [];
+  const pdtLongueur = pdt.reduce((s, t) => s + n(t.longueur) * Math.max(1, n(t.qte) || 1), 0);
+  const pdtSurface = pdt.reduce(
+    (s, t) => s + n(t.longueur) * (n(t.profondeur) / 100) * Math.max(1, n(t.qte) || 1), 0
+  );
+  const pdtDecoupes = pdt.reduce(
+    (s, t) => s + Object.values(t.decoupes || {}).filter(Boolean).length, 0
+  );
+  const pdtChants = pdt.reduce(
+    (s, t) => s + (t.chantAvant ? n(t.longueur) : 0) + (t.chantG ? n(t.profondeur) / 100 : 0) + (t.chantD ? n(t.profondeur) / 100 : 0), 0
+  );
+
+  /* Crédence : surface brute des zones − ouvertures déduites. */
+  const credence = cu.credence || [];
+  const credenceBrut = credence.reduce(
+    (s, z) => s + n(z.longueur) * n(z.hauteur) * Math.max(1, n(z.qte) || 1), 0
+  );
+  const credenceDeduc = credence.reduce((s, z) => s + n(z.deduction), 0);
+  const credenceMarge = credence.length ? n(credence[0].marge) || 0 : 0;
+  const credenceNet = Math.max(0, credenceBrut - credenceDeduc);
+  const credenceSurface = credenceNet * (1 + credenceMarge / 100);
+
+  /* Plinthe de cuisine : linéaire des meubles bas du projet, sauf saisie explicite. */
+  const plintheSaisie = n(cu.plintheLongueur);
+  const plintheCuisine = plintheSaisie > 0 ? plintheSaisie : sProjet.mlBas + sProjet.mlIlot;
+
+  /* Équipements du module cuisine. */
+  const equipements = cu.equipements || [];
+  const nbEquipements = equipements.reduce((s, e) => s + Math.max(1, n(e.qte) || 1), 0);
+  const ELECTRO = ["Plaque de cuisson", "Four", "Four vapeur", "Micro-ondes", "Lave-vaisselle", "Réfrigérateur", "Congélateur", "Cave à vin", "Hotte aspirante", "Hotte décorative"];
+  const nbElectro = equipements
+    .filter((e) => ELECTRO.includes(e.type))
+    .reduce((s, e) => s + Math.max(1, n(e.qte) || 1), 0);
+
+  const auto = {
+    nbBasProjet: sProjet.nbBas, nbHautProjet: sProjet.nbHaut,
+    nbColonnesProjet: sProjet.nbColonnes, nbIlotProjet: sProjet.nbIlot,
+    mlBasProjet: sProjet.mlBas, mlHautProjet: sProjet.mlHaut,
+    mlColonnesProjet: sProjet.mlColonnes, mlIlotProjet: sProjet.mlIlot,
+    pdtLongueur, pdtSurface, pdtDecoupes, pdtChants,
+    credenceSurface, plintheCuisine,
+    nbJoues, nbFileurs, nbPlinthesCu, nbEquipements, nbElectro,
+  };
+
+  return {
+    ...auto,
+    existant: sExistant,
+    projet: sProjet,
+    credenceBrut, credenceNet,
+    nbMeublesExistant: sExistant.nbTotal,
+    nbMeublesProjet: sProjet.nbTotal,
+    implantation: cu.implantation || "",
+    ...Object.fromEntries(
+      Object.entries(auto).map(([k, v]) => [k, Number.isFinite(v) ? v : 0])
+    ),
+  };
 }

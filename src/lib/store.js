@@ -194,12 +194,122 @@ export const newOuverture = (type = "Fenêtre") => ({
   retours: { tabG: false, tabD: false, linteau: false, appui: false, seuil: false },
 });
 
+/* ---- Fabriques des modules métier (v2.1) ---- */
+
+export const newFace = () => ({
+  id: uid(), nom: "Façade principale", orientation: "",
+  largeur: "", hauteur: "", niveaux: "1", qte: "1", hParNiveau: false,
+});
+
+export const newPathologie = (cat) => ({
+  id: uid(), type: cat?.id || "fissure", label: cat?.label || "Fissure",
+  unite: cat?.unite || "ml", qte: "", localisation: "", obs: "", photos: [],
+});
+
+export const newBandeau = () => ({ id: uid(), label: "Bandeau", longueur: "", qte: "1" });
+
+export const newMeuble = (def, phase) => ({
+  id: uid(), type: def?.id || "bas", label: def?.label || "Meuble bas",
+  rang: def?.rang || "bas", phase: phase || "projet",
+  largeur: "", hauteur: def?.h ? String(def.h) : "", profondeur: def?.p ? String(def.p) : "",
+  qte: "1", portes: "", tiroirs: "", sens: "", surMesure: false,
+  finition: "", reference: "", position: "", etat: phase === "existant" ? "Existant" : "À créer",
+  obs: "",
+});
+
+export const newTroncon = () => ({
+  id: uid(), nom: "Tronçon", longueur: "", profondeur: "65", epaisseur: "38",
+  materiau: "Stratifié", debord: "", qte: "1",
+  chantAvant: true, chantG: false, chantD: false,
+  decoupes: {}, dosseret: false, remonteeMurale: "", obs: "",
+});
+
+export const newCredence = () => ({
+  id: uid(), nom: "Crédence", longueur: "", hauteur: "0.60", qte: "1",
+  materiau: "Faïence", deduction: "", prises: "", retours: "", marge: 10, obs: "",
+});
+
+export const newEquipCuisine = () => ({
+  id: uid(), type: "Évier", etat: "À créer", qte: "1", dims: "", obs: "",
+});
+
+/* ==================================================================== */
+/*  MIGRATION DOUCE (v2.2)                                              */
+/*                                                                      */
+/*  Les anciennes visites n'ont pas les champs des versions récentes.   */
+/*  On ne réécrit JAMAIS les données existantes : on complète seulement  */
+/*  ce qui manque, à la lecture. Une visite v1 reste lisible par une    */
+/*  version antérieure tant qu'elle n'a pas été modifiée.               */
+/* ==================================================================== */
+
+/** Complète une pièce avec les champs absents, sans rien écraser. */
+export function migrerRoom(r) {
+  if (!r || typeof r !== "object") return r;
+  const out = { ...r };
+  if (!out.elec) out.elec = [];
+  if (!out.q) out.q = {};
+  if (!out.travaux) out.travaux = {};
+  if (!out.lotsExceptionnels) out.lotsExceptionnels = [];
+  if (!Array.isArray(out.prestations)) out.prestations = [];   // v2.4
+  if (out.profilForce === undefined) out.profilForce = "";
+  if (out.sol && out.sol.revetementAutre === undefined) out.sol.revetementAutre = ""; // v2.4
+  if (!out.facade) {
+    out.facade = {
+      faces: [], support: "", etat: "", acces: "", pathologies: [], bandeaux: [],
+      soubassementTraite: false, soubassementH: "", traiterTableaux: true,
+      travaux: {}, finition: "", aspect: "", teinte: "", couches: "2", obs: "",
+    };
+  }
+  if (!out.cuisine) {
+    out.cuisine = { implantation: "", meubles: [], pdt: [], credence: [], equipements: [], plintheLongueur: "", obs: "" };
+  }
+
+  /* v2.2 : les postes de travaux gagnent un mode et une traçabilité.
+     Un poste ancien porte seulement { on, retenu } : on convertit `retenu`
+     en saisie manuelle, ce qui préserve exactement la quantité affichée. */
+  out.travaux = Object.fromEntries(
+    Object.entries(out.travaux).map(([id, t]) => {
+      if (!t || typeof t !== "object") return [id, t];
+      if (t.mode) return [id, t]; // déjà au format v2.2
+      const aRetenu = t.retenu !== undefined && t.retenu !== null && String(t.retenu).trim() !== "";
+      return [id, {
+        ...t,
+        mode: aRetenu ? "manuel" : "auto",
+        val: aRetenu ? t.retenu : "",
+        snap: null,
+        marge: t.marge ?? "",
+        obs: t.obs ?? "",
+        dateValid: null, dateModif: null, ancienne: null,
+        source: t.source ?? "",
+      }];
+    })
+  );
+  return out;
+}
+
+/** Complète une visite entière. Idempotent. */
+export function migrerVisite(v) {
+  if (!v || typeof v !== "object") return v;
+  /* v2.3 : deux champs de contexte s'ajoutent aux informations générales.
+     `observations` existe depuis l'origine et n'est jamais touché. */
+  const chantier = { ...(v.chantier || {}) };
+  if (chantier.demandeClient === undefined) chantier.demandeClient = "";
+  if (chantier.contraintes === undefined) chantier.contraintes = "";
+  return { ...v, chantier, rooms: (v.rooms || []).map(migrerRoom) };
+}
+
+/** Prestation saisie à la main : elle ne vient d'aucun catalogue et n'est
+    jamais recalculée. Son id est préfixé pour rester reconnaissable partout. */
+export const newPrestation = (lot = "demo") => ({
+  id: "px_" + uid(), lot, label: "", qte: "", unit: "forfait", obs: "",
+});
+
 export const newRoom = (type, nom) => ({
   id: uid(), typeId: type.id, typeLabel: type.label, modules: type.modules || [],
   nom: nom || type.label, niveau: "RDC",
   zones: [newZone()], ouvertures: [],
   murs: { traiterRetours: true, retenu: "" },
-  sol: { revetement: "Carrelage", marge: 10, options: {}, nonTraitees: [], retenu: "" },
+  sol: { revetement: "Carrelage", revetementAutre: "", marge: 10, options: {}, nonTraitees: [], retenu: "" },
   plafond: { mode: "Peinture seule", ajouts: [], deductions: [], retenu: "" },
   plinthes: { marge: 7, deductions: [], retenu: "" },
   faience: [], faienceMarge: 10, faienceRetenu: "",
@@ -207,6 +317,22 @@ export const newRoom = (type, nom) => ({
   peinture: { supports: {}, preparation: {}, couches: 2 },
   equipements: {}, etats: {}, travaux: {},
   elec: [], q: {},
+  /* v2.4 : prestations saisies à la main, hors catalogue. */
+  prestations: [],
+  /* --- Modules métier (v2.1) ---
+     Toujours présents à la création. Sur une visite antérieure ces clés sont
+     absentes : les moteurs et l'UI les traitent comme vides, sans migration. */
+  facade: {
+    faces: [], support: "", etat: "", acces: "", pathologies: [], bandeaux: [],
+    soubassementTraite: false, soubassementH: "", traiterTableaux: true,
+    travaux: {}, finition: "", aspect: "", teinte: "", couches: "2", obs: "",
+  },
+  cuisine: {
+    implantation: "", meubles: [], pdt: [], credence: [], equipements: [],
+    plintheLongueur: "", obs: "",
+  },
+  /* Lots ajoutés exceptionnellement hors du profil métier de la pièce. */
+  lotsExceptionnels: [], profilForce: "",
   photos: [], sketches: [], notes: "", notesInternes: "", pointsAVerifier: [],
 });
 
@@ -218,6 +344,7 @@ export const newVisite = () => ({
     metreur: "", typeBien: "", occupation: "", present: "", etage: "", ascenseur: false,
     acces: "", stationnement: "", superficie: "", annee: "", delai: "", budget: "",
     amiante: "", plomb: "", observations: "",
+    /* v2.3 */ demandeClient: "", contraintes: "",
   },
   rooms: [], checklist: {}, notesGenerales: "", notesInternes: "",
 });

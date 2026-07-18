@@ -1,9 +1,12 @@
 import { useState, useMemo } from "react";
-import { Check, Download, FileText, Printer, X } from "lucide-react";
+import { Check, Download, FileText, Printer, RefreshCw, X } from "lucide-react";
 import { StoredImg } from "../components/SketchPad";
 import { Btn, Chips, Line, Section, Toggle } from "../components/ui";
 import { AUTO, calcProgression, calcRoom, calcVisite, fmt, qValider } from "../lib/calc";
-import { CHECKLIST, G_DARK, G_LIGHT, G_PALE, LOTS, n } from "../lib/catalogue";
+import { ouvragesDeVisite, ouvragesParLot } from "../lib/travaux";
+import { profilDe } from "../lib/profils";
+import { BlocPiece, BlocFacade, aValeur } from "../components/RapportBlocs";
+import { CHECKLIST, G_DARK, G_LIGHT, G_PALE, LOTS, estExterieur, n } from "../lib/catalogue";
 
 /* ==================================================================== */
 /*  MODULE 8 — RÉCAP GLOBAL / CHECK-LIST / RAPPORT                      */
@@ -11,13 +14,15 @@ import { CHECKLIST, G_DARK, G_LIGHT, G_PALE, LOTS, n } from "../lib/catalogue";
 
 export function RecapScreen({ v, set, toast }) {
   const c = useMemo(() => calcVisite(v), [v]);
+  /* Les ouvrages sont TOUJOURS reconstruits depuis la visite courante. */
+  const ouvrages = useMemo(() => ouvragesDeVisite(v), [v]);
   const [fPiece, setFPiece] = useState("");
   const [fLot, setFLot] = useState("");
   const [fUnit, setFUnit] = useState("");
   const [fInter, setFInter] = useState("");
   const [confirmGlobal, setConfirmGlobal] = useState(false);
 
-  const rows = c.ouvrages
+  const rows = ouvrages
     .filter((o) => !fPiece || o.roomId === fPiece)
     .filter((o) => !fLot || o.lot === fLot)
     .filter((o) => !fUnit || o.unit === fUnit)
@@ -213,9 +218,9 @@ export function RecapScreen({ v, set, toast }) {
       <Section title="Filtres" defaultOpen>
         <div className="space-y-2">
           <Chips label="Pièce" value={fPiece} onChange={setFPiece} options={v.rooms.map((r) => ({ v: r.id, l: r.nom }))} />
-          <Chips label="Lot" value={fLot} onChange={setFLot} options={[...new Set(c.ouvrages.map((o) => o.lot))].map((id) => ({ v: id, l: (LOTS.find((l) => l.id === id) || {}).nom || id }))} />
-          <Chips label="Unité" value={fUnit} onChange={setFUnit} options={[...new Set(c.ouvrages.map((o) => o.unit))]} />
-          <Chips label="Intervention" value={fInter} onChange={setFInter} options={[...new Set(c.ouvrages.map((o) => o.intervention).filter(Boolean))]} />
+          <Chips label="Lot" value={fLot} onChange={setFLot} options={[...new Set(ouvrages.map((o) => o.lot))].map((id) => ({ v: id, l: (LOTS.find((l) => l.id === id) || {}).nom || id }))} />
+          <Chips label="Unité" value={fUnit} onChange={setFUnit} options={[...new Set(ouvrages.map((o) => o.unit))]} />
+          <Chips label="Intervention" value={fInter} onChange={setFInter} options={[...new Set(ouvrages.map((o) => o.intervention).filter(Boolean))]} />
           {(fPiece || fLot || fUnit || fInter) && (
             <Btn variant="ghost" onClick={() => { setFPiece(""); setFLot(""); setFUnit(""); setFInter(""); }} className="w-full min-h-[40px]">
               <X size={15} /> Effacer les filtres
@@ -315,7 +320,16 @@ const PRINT_CSS = `
 `;
 
 export function ReportScreen({ v, toast }) {
-  const c = useMemo(() => calcVisite(v), [v]);
+  /* `nonce` ne sert qu'au bouton « Actualiser » : il force une reconstruction
+     complète même si React n'a rien vu changer. */
+  const [nonce, setNonce] = useState(0);
+  const c = useMemo(() => calcVisite(v), [v, nonce]);
+  /* Aucune copie : les ouvrages sont relus dans le catalogue vivant à chaque
+     changement de la visite. */
+  const ouvrages = useMemo(() => ouvragesDeVisite(v), [v, nonce]);
+  /* Horodatage de la construction affichée : il suit v, donc il prouve à
+     l'écran que ce qui est lu est bien la dernière version enregistrée. */
+  const genereLe = useMemo(() => new Date(), [v, nonce]);
   const [showInternes, setShowInternes] = useState(false);
   const [showPhotos, setShowPhotos] = useState(true);
   const p = calcProgression(v);
@@ -326,24 +340,38 @@ export function ReportScreen({ v, toast }) {
   const reserves = [];
   v.rooms.forEach((r) => (r.pointsAVerifier || []).forEach((x) => { if (x.txt && !x.ok) reserves.push({ piece: r.nom, txt: x.txt }); }));
 
-  const consolide = {};
-  c.ouvrages.forEach((o) => {
-    const k = `${o.lotNom}|${o.label}|${o.unit}`;
-    if (!consolide[k]) consolide[k] = { ...o, qteRetenue: 0, pieces: [] };
-    consolide[k].qteRetenue += o.qteRetenue;
-    consolide[k].pieces.push(o.roomNom);
-  });
-  const parLotCons = {};
-  Object.values(consolide).forEach((o) => (parLotCons[o.lotNom] = parLotCons[o.lotNom] || []).push(o));
+  /* Consolidation faite sur les ouvrages RELUS, jamais sur un agrégat figé. */
+  const parLotCons = useMemo(() => ouvragesParLot(ouvrages), [ouvrages]);
 
   return (
     <div className="pb-28">
       <style>{PRINT_CSS}</style>
 
       <div className="no-print p-3 space-y-2">
+        {/* Preuve à l'écran que l'aperçu vient bien de la dernière version enregistrée. */}
+        <div className="rounded-xl border-2 p-2 flex items-center justify-between gap-2"
+          style={{ borderColor: G_LIGHT, backgroundColor: G_PALE }}>
+          <div className="min-w-0">
+            <div className="text-[14px] font-bold uppercase tracking-wide" style={{ color: G_DARK }}>
+              Rapport actualisé le
+            </div>
+            <div className="text-[16px] font-mono text-stone-700">
+              {genereLe.toLocaleDateString("fr-FR")} à {genereLe.toLocaleTimeString("fr-FR")}
+            </div>
+            <p className="text-[13px] text-stone-500 leading-snug mt-0.5">
+              L'aperçu se reconstruit à chaque modification de la visite.
+            </p>
+          </div>
+          <button onClick={() => { setNonce((x) => x + 1); toast("Rapport reconstruit"); }}
+            className="h-9 px-2.5 rounded-lg text-[14px] font-bold text-white flex items-center gap-1 shrink-0"
+            style={{ backgroundColor: G_DARK }}>
+            <RefreshCw size={13} /> Actualiser le rapport
+          </button>
+        </div>
+
         <div className="rounded-xl p-2 flex items-start gap-1.5" style={{ backgroundColor: G_PALE }}>
           <FileText size={13} style={{ color: G_DARK }} className="mt-0.5 shrink-0" />
-          <p className="text-[10px] text-stone-700 leading-snug">
+          <p className="text-[14px] text-stone-700 leading-snug">
             Mise en page A4. Le bouton lance l'impression du navigateur : choisissez « Enregistrer au format PDF ».
           </p>
         </div>
@@ -353,35 +381,47 @@ export function ReportScreen({ v, toast }) {
         </div>
       </div>
 
-      <div className="rap mx-3 bg-white border-2 border-stone-200 rounded-2xl p-5 text-stone-900" style={{ fontSize: 11 }}>
+      <div className="rap mx-3 bg-white border-2 border-stone-200 rounded-2xl p-5 text-stone-900" style={{ fontSize: 16 }}>
         {/* En-tête */}
-        <div className="flex items-start justify-between border-b-4 pb-2 mb-3" style={{ borderColor: G_DARK }}>
-          <div>
-            <div className="font-bold text-xl leading-none" style={{ color: G_DARK }}>BRN GROUP</div>
-            <div className="text-[9px] text-stone-500 mt-0.5">Entreprise générale du bâtiment — Tous corps d'état</div>
-            <div className="text-[9px] text-stone-500">204 Avenue Gallieni, 93140 Bondy · contact@brngroup.fr</div>
+        <div className="flex items-start justify-between border-b-4 pb-2.5 mb-3" style={{ borderColor: G_DARK }}>
+          <div className="flex items-start gap-2.5">
+            <img src="/logo-brn.png" alt="BRN GROUP" className="h-14 w-auto shrink-0"
+              style={{ printColorAdjust: "exact", WebkitPrintColorAdjust: "exact" }} />
+            <div className="leading-tight">
+              <div className="font-bold text-2xl leading-none tracking-tight" style={{ color: G_DARK }}>BRN GROUP</div>
+              <div className="text-[11px] uppercase tracking-[0.12em] text-stone-500 mt-0.5">
+                Entreprise générale du bâtiment · Tous corps d'état
+              </div>
+              <div className="text-[11px] text-stone-500 mt-1 leading-snug">
+                204 avenue Gallieni, 93140 Bondy<br />
+                contact@brngroup.fr · www.brn-group.fr
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="font-bold text-sm">RAPPORT DE VISITE TECHNIQUE</div>
-            <div className="font-mono text-[10px] text-stone-600">{v.ref || "Réf. non renseignée"}</div>
-            <div className="text-[10px] text-stone-600">{dt}</div>
+          <div className="text-right shrink-0">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-stone-400">Rapport de</div>
+            <div className="font-bold text-lg leading-tight tracking-tight" style={{ color: G_DARK }}>VISITE TECHNIQUE</div>
+            {aValeur(v.ref) && (
+              <div className="font-mono text-[14px] text-stone-700 mt-1">{v.ref}</div>
+            )}
+            <div className="text-[13px] text-stone-500">{dt}</div>
           </div>
         </div>
 
         {/* Identification */}
-        <table className="w-full mb-3" style={{ fontSize: 10 }}>
+        <table className="w-full mb-3" style={{ fontSize: 14 }}>
           <tbody>
             <tr>
               <td className="align-top w-1/2 pr-3">
-                <div className="font-bold text-[9px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Client</div>
+                <div className="font-bold text-[13px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Client</div>
                 <div><b>{cli}</b></div>
                 {v.client.tel && <div>{v.client.tel}</div>}
                 {v.client.email && <div>{v.client.email}</div>}
                 {v.client.origine && <div className="text-stone-500">Origine : {v.client.origine}</div>}
               </td>
               <td className="align-top w-1/2">
-                <div className="font-bold text-[9px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Chantier</div>
-                <div>{v.chantier.adresse || "—"}</div>
+                <div className="font-bold text-[13px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Chantier</div>
+                {aValeur(v.chantier.adresse) && <div>{v.chantier.adresse}</div>}
                 <div>{v.chantier.cp} {v.chantier.ville}</div>
                 <div className="text-stone-500">
                   {[v.chantier.typeBien, v.chantier.etage && `Étage ${v.chantier.etage}`, v.chantier.ascenseur ? "Ascenseur" : null, v.chantier.occupation]
@@ -395,148 +435,126 @@ export function ReportScreen({ v, toast }) {
 
         {/* Synthèse */}
         <div className="mb-3">
-          <div className="font-bold text-[9px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Synthèse</div>
+          <div className="font-bold text-[13px] uppercase tracking-wide mb-1" style={{ color: G_DARK }}>Synthèse</div>
           <div className="grid grid-cols-4 gap-2 mb-2">
             {[
               { k: "Pièces", v: v.rooms.length },
               { k: "Surface sol", v: fmt(c.totals.solNet, 1) + " m²" },
               { k: "Surface murs", v: fmt(c.totals.mursNet, 1) + " m²" },
-              { k: "Ouvrages", v: c.ouvrages.length },
+              { k: "Ouvrages", v: ouvrages.length },
             ].map((x) => (
               <div key={x.k} className="border-2 rounded p-1.5" style={{ borderColor: G_LIGHT }}>
-                <div className="text-[8px] uppercase text-stone-500 font-bold">{x.k}</div>
+                <div className="text-[11px] uppercase text-stone-500 font-bold">{x.k}</div>
                 <div className="font-mono font-bold text-sm" style={{ color: G_DARK }}>{x.v}</div>
               </div>
             ))}
           </div>
           {(v.chantier.amiante === "Présent" || v.chantier.amiante === "Suspecté" || v.chantier.plomb === "Présent" || v.chantier.plomb === "Suspecté" ||
             (Number(v.chantier.annee) > 0 && Number(v.chantier.annee) < 1997)) && (
-            <div className="border-2 border-red-300 bg-red-50 rounded p-1.5 text-[9px] text-red-900 mb-2">
-              <b>Risques sanitaires :</b> Amiante {v.chantier.amiante || "non renseigné"} · Plomb {v.chantier.plomb || "non renseigné"}.
+            <div className="border-2 border-red-300 bg-red-50 rounded p-1.5 text-[13px] text-red-900 mb-2">
+              <b>Risques sanitaires :</b>{" "}
+              {[aValeur(v.chantier.amiante) && `Amiante ${v.chantier.amiante}`,
+                aValeur(v.chantier.plomb) && `Plomb ${v.chantier.plomb}`].filter(Boolean).join(" · ")}.
               {Number(v.chantier.annee) > 0 && Number(v.chantier.annee) < 1997 && " Bâti antérieur à 1997 : RAAT obligatoire avant toute démolition."}
             </div>
           )}
-          {v.chantier.observations && <p className="text-[10px] leading-snug">{v.chantier.observations}</p>}
-          {(v.chantier.delai || v.chantier.budget) && (
-            <p className="text-[10px] text-stone-600 mt-1">
-              {v.chantier.delai && <>Délai souhaité : <b>{v.chantier.delai}</b>. </>}
-              {v.chantier.budget && <>Budget annoncé : <b>{v.chantier.budget}</b>.</>}
+          {aValeur(v.chantier.demandeClient) && (
+            <div className="mb-2">
+              <div className="font-bold text-[13px] uppercase tracking-wide mb-0.5" style={{ color: G_DARK }}>
+                Demande du client
+              </div>
+              <p className="text-[14px] leading-snug whitespace-pre-line">{v.chantier.demandeClient}</p>
+            </div>
+          )}
+          {aValeur(v.chantier.contraintes) && (
+            <div className="mb-2">
+              <div className="font-bold text-[13px] uppercase tracking-wide mb-0.5" style={{ color: G_DARK }}>
+                Contraintes et souhaits particuliers
+              </div>
+              <p className="text-[14px] leading-snug whitespace-pre-line">{v.chantier.contraintes}</p>
+            </div>
+          )}
+          {aValeur(v.chantier.observations) && (
+            <div className="mb-2 rounded p-1.5" style={{ backgroundColor: G_PALE }}>
+              <div className="font-bold text-[13px] uppercase tracking-wide mb-0.5" style={{ color: G_DARK }}>
+                Observations générales BRN GROUP
+              </div>
+              <p className="text-[14px] leading-snug whitespace-pre-line">{v.chantier.observations}</p>
+            </div>
+          )}
+          {(aValeur(v.chantier.delai) || aValeur(v.chantier.budget)) && (
+            <p className="text-[14px] text-stone-600 mt-1">
+              {aValeur(v.chantier.delai) && <>Délai souhaité : <b>{v.chantier.delai}</b>. </>}
+              {aValeur(v.chantier.budget) && <>Budget annoncé : <b>{v.chantier.budget}</b>.</>}
             </p>
           )}
         </div>
 
-        {/* Pièces */}
-        <div className="font-bold text-[9px] uppercase tracking-wide mb-1 border-b-2 pb-0.5" style={{ color: G_DARK, borderColor: G_LIGHT }}>
-          Détail par pièce
-        </div>
-        {c.perRoom.map(({ room: r, c: rc }) => {
-          const tr = Object.entries(r.travaux || {}).filter(([, t]) => t.on);
-          const photos = (r.photos || []).filter((x) => x.inclure !== false);
-          return (
-            <div key={r.id} className="rap-piece mb-3 pb-2 border-b border-stone-200">
-              <div className="flex items-baseline justify-between">
-                <div className="font-bold text-[12px]">{r.nom}</div>
-                <div className="text-[9px] text-stone-500">{r.niveau} · {r.typeLabel}</div>
-              </div>
-
-              <table className="w-full my-1" style={{ fontSize: 9 }}>
-                <tbody>
-                  <tr className="bg-stone-50">
-                    <td className="px-1 py-0.5 text-stone-500">Sol net</td>
-                    <td className="px-1 py-0.5 font-mono font-bold text-right">{fmt(rc.solNet)} m²</td>
-                    <td className="px-1 py-0.5 text-stone-500">Murs nets</td>
-                    <td className="px-1 py-0.5 font-mono font-bold text-right">{fmt(rc.mursNet)} m²</td>
-                    <td className="px-1 py-0.5 text-stone-500">Plafond</td>
-                    <td className="px-1 py-0.5 font-mono font-bold text-right">{fmt(rc.plafondRetenu)} m²</td>
-                  </tr>
-                  <tr>
-                    <td className="px-1 py-0.5 text-stone-500">Périmètre</td>
-                    <td className="px-1 py-0.5 font-mono text-right">{fmt(rc.perim)} ml</td>
-                    <td className="px-1 py-0.5 text-stone-500">Plinthes</td>
-                    <td className="px-1 py-0.5 font-mono font-bold text-right">{fmt(rc.plinthesRetenu)} ml</td>
-                    <td className="px-1 py-0.5 text-stone-500">Volume</td>
-                    <td className="px-1 py-0.5 font-mono text-right">{fmt(rc.volume)} m³</td>
-                  </tr>
-                  <tr className="bg-stone-50">
-                    <td className="px-1 py-0.5 text-stone-500">Ouvertures</td>
-                    <td className="px-1 py-0.5 font-mono text-right">{fmt(rc.ouvTotal)} m²</td>
-                    <td className="px-1 py-0.5 text-stone-500">Tableaux</td>
-                    <td className="px-1 py-0.5 font-mono text-right">{fmt(rc.tableauxTotal)} m²</td>
-                    <td className="px-1 py-0.5 text-stone-500">Portes / fen.</td>
-                    <td className="px-1 py-0.5 font-mono text-right">{fmt(rc.nbPortes, 0)} / {fmt(rc.nbFenetres, 0)}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              {tr.length > 0 && (
-                <table className="w-full mb-1" style={{ fontSize: 9 }}>
-                  <thead>
-                    <tr style={{ backgroundColor: G_DARK, color: "#fff" }}>
-                      <th className="px-1 py-0.5 text-left font-bold">Ouvrage</th>
-                      <th className="px-1 py-0.5 text-left font-bold w-24">Intervention</th>
-                      <th className="px-1 py-0.5 text-left font-bold w-24">Matériau</th>
-                      <th className="px-1 py-0.5 text-right font-bold w-14">Qté</th>
-                      <th className="px-1 py-0.5 text-left font-bold w-8">U</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tr.map(([id, t]) => {
-                      const q = t.retenu !== undefined && t.retenu !== "" ? n(t.retenu) : (t.autoKey ? rc[t.autoKey] || 0 : 0);
-                      return (
-                        <tr key={id} className="border-b border-stone-100">
-                          <td className="px-1 py-0.5">{t.label}</td>
-                          <td className="px-1 py-0.5 text-stone-500">{t.intervention || "—"}</td>
-                          <td className="px-1 py-0.5 text-stone-500">{t.materiau || "—"}</td>
-                          <td className="px-1 py-0.5 text-right font-mono font-bold">{fmt(q)}</td>
-                          <td className="px-1 py-0.5 text-stone-400 font-mono">{t.unit}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-
-              {(showPhotos && (photos.length > 0 || (r.sketches || []).length > 0)) && (
-                <div className="flex gap-1 flex-wrap my-1">
-                  {(r.sketches || []).map((s) => (
-                    <div key={s.id} className="w-28">
-                      <StoredImg blobKey={s.blobKey} className="w-28 h-20 object-contain border border-stone-300 bg-white" />
-                      {s.legende && <div className="text-[7px] text-stone-500 truncate">{s.legende}</div>}
-                    </div>
-                  ))}
-                  {photos.map((ph) => (
-                    <div key={ph.id} className="w-20">
-                      <StoredImg blobKey={ph.blobKey} className="w-20 h-20 object-cover border border-stone-300" />
-                      {ph.legende && <div className="text-[7px] text-stone-500 truncate">{ph.legende}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {r.notes && <p className="text-[9px] italic text-stone-600">{r.notes}</p>}
-              {showInternes && r.notesInternes && (
-                <p className="text-[9px] italic text-amber-800 bg-amber-50 px-1 py-0.5 rounded">Interne : {r.notesInternes}</p>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Quantitatif */}
-        <div className="rap-break">
-          <div className="font-bold text-[9px] uppercase tracking-wide mb-1 border-b-2 pb-0.5" style={{ color: G_DARK, borderColor: G_LIGHT }}>
-            Quantitatif consolidé — prêt pour le chiffrage
+        {/* Relevé détaillé : chaque bloc masque ce qui est vide.
+            Aucune surface n'est fusionnée entre pièces — la consolidation
+            n'intervient qu'au récapitulatif général, en fin de rapport. */}
+        <div className="rap-break mb-1">
+          <div className="font-bold text-[19px] uppercase tracking-[0.06em] pb-1.5 mb-1 border-b-4"
+            style={{ color: G_DARK, borderColor: G_DARK }}>
+            Relevé détaillé des interventions
           </div>
-          {Object.keys(parLotCons).length === 0 && <p className="text-[10px] text-stone-500 py-2">Aucun ouvrage sélectionné.</p>}
+          <p className="text-[11px] text-stone-500 leading-snug mb-2">
+            Constats, métrés et interventions retenues, présentés pièce par pièce.
+          </p>
+        </div>
+
+        {c.perRoom.filter(({ room: r }) => !estExterieur(r.typeId)).length > 0 && (
+          <>
+            <div className="font-bold text-[14px] uppercase tracking-[0.09em] mb-2 mt-1 border-b-2 pb-1" style={{ color: G_DARK, borderColor: G_LIGHT }}>
+              Pièces intérieures
+            </div>
+            {c.perRoom
+              .filter(({ room: r }) => !estExterieur(r.typeId))
+              .map(({ room: r, c: rc }) => (
+                <BlocPiece key={r.id} r={r} rc={rc} ouvrages={ouvrages.filter((o) => o.roomId === r.id)} showPhotos={showPhotos} showInternes={showInternes} />
+              ))}
+          </>
+        )}
+
+        {c.perRoom.filter(({ room: r }) => estExterieur(r.typeId)).length > 0 && (
+          <>
+            <div className="font-bold text-[14px] uppercase tracking-[0.09em] mb-2 mt-4 border-b-2 pb-1" style={{ color: G_DARK, borderColor: G_LIGHT }}>
+              Zones extérieures
+            </div>
+            {c.perRoom
+              .filter(({ room: r }) => estExterieur(r.typeId))
+              .map(({ room: r, c: rc }) =>
+                profilDe(r).id === "facade"
+                  ? <BlocFacade key={r.id} r={r} rc={rc} ouvrages={ouvrages.filter((o) => o.roomId === r.id)} showPhotos={showPhotos} showInternes={showInternes} />
+                  : <BlocPiece key={r.id} r={r} rc={rc} ouvrages={ouvrages.filter((o) => o.roomId === r.id)} showPhotos={showPhotos} showInternes={showInternes} />
+              )}
+          </>
+        )}
+
+        {/* Récapitulatif général — les détails pièce par pièce figurent
+            dans chaque bloc ci-dessus ; ici, et seulement ici, on totalise. */}
+        <div className="rap-break">
+          <div className="font-bold text-[19px] uppercase tracking-[0.06em] pb-1.5 mb-1 border-b-4"
+            style={{ color: G_DARK, borderColor: G_DARK }}>
+            Récapitulatif général des interventions
+          </div>
+          <p className="text-[11px] text-stone-500 mb-1.5 leading-snug">
+            Totaux tous locaux confondus. Le détail par pièce figure dans chaque section
+            « Interventions retenues » ci-dessus.
+          </p>
+          {Object.keys(parLotCons).length === 0 && (
+            <p className="text-[14px] text-stone-500 py-2">Aucune intervention retenue.</p>
+          )}
           {Object.entries(parLotCons).map(([lotNom, items]) => (
             <div key={lotNom} className="mb-2 rap-piece">
-              <div className="font-bold text-[10px] mb-0.5">{lotNom}</div>
-              <table className="w-full" style={{ fontSize: 9 }}>
+              <div className="font-bold text-[15px] mb-1" style={{ color: G_DARK }}>{lotNom}</div>
+              <table className="w-full" style={{ fontSize: 13 }}>
                 <tbody>
-                  {items.map((o, i) => (
-                    <tr key={i} className="border-b border-stone-100">
+                  {items.map((o, i2) => (
+                    <tr key={i2} className="border-b border-stone-100">
                       <td className="px-1 py-0.5">{o.label}</td>
-                      <td className="px-1 py-0.5 text-stone-400 text-[8px]">{[...new Set(o.pieces)].join(", ")}</td>
-                      <td className="px-1 py-0.5 text-right font-mono font-bold w-16">{fmt(o.qteRetenue)}</td>
+                      <td className="px-1 py-0.5 text-stone-400 text-[11px]">{[...new Set(o.pieces)].join(", ")}</td>
+                      <td className="px-1 py-0.5 text-right font-mono font-bold w-16">{fmt(o.qteRetenue, o.unit === "u" ? 0 : 2)}</td>
                       <td className="px-1 py-0.5 text-stone-400 font-mono w-8">{o.unit}</td>
                     </tr>
                   ))}
@@ -549,27 +567,27 @@ export function ReportScreen({ v, toast }) {
         {/* Réserves */}
         {(reserves.length > 0 || v.notesGenerales) && (
           <div className="mt-3 rap-piece">
-            <div className="font-bold text-[9px] uppercase tracking-wide mb-1 border-b-2 pb-0.5" style={{ color: G_DARK, borderColor: G_LIGHT }}>
+            <div className="font-bold text-[14px] uppercase tracking-[0.09em] mb-2 mt-1 border-b-2 pb-1" style={{ color: G_DARK, borderColor: G_LIGHT }}>
               Réserves & points restant à confirmer
             </div>
-            {v.notesGenerales && <p className="text-[10px] mb-1">{v.notesGenerales}</p>}
+            {v.notesGenerales && <p className="text-[14px] mb-1">{v.notesGenerales}</p>}
             {reserves.map((r, i) => (
-              <div key={i} className="text-[9px] flex gap-1">
+              <div key={i} className="text-[13px] flex gap-1">
                 <span className="text-stone-400">☐</span>
                 <span><b>{r.piece} :</b> {r.txt}</span>
               </div>
             ))}
             {showInternes && v.notesInternes && (
-              <p className="text-[9px] italic text-amber-800 bg-amber-50 px-1 py-0.5 rounded mt-1">Interne : {v.notesInternes}</p>
+              <p className="text-[13px] italic text-amber-800 bg-amber-50 px-1 py-0.5 rounded mt-1">Interne : {v.notesInternes}</p>
             )}
           </div>
         )}
 
         {/* Validation */}
-        <div className="mt-4 pt-2 border-t-2 flex justify-between text-[9px]" style={{ borderColor: G_LIGHT }}>
+        <div className="mt-4 pt-2 border-t-2 flex justify-between text-[13px]" style={{ borderColor: G_LIGHT }}>
           <div>
             <div className="text-stone-500">Métreur BRN Group</div>
-            <div className="font-bold">{v.chantier.metreur || "—"}</div>
+            <div className="font-bold">{aValeur(v.chantier.metreur) ? v.chantier.metreur : ""}</div>
             <div className="mt-4 border-t border-stone-300 w-32 pt-0.5 text-stone-400">Signature</div>
           </div>
           <div>
@@ -579,7 +597,7 @@ export function ReportScreen({ v, toast }) {
           </div>
         </div>
 
-        <div className="rap-foot mt-3 pt-1 border-t border-stone-200 text-[8px] text-stone-400 flex justify-between">
+        <div className="rap-foot mt-3 pt-1 border-t border-stone-200 text-[11px] text-stone-400 flex justify-between">
           <span>BRN Group — Rapport de visite technique {v.ref && `· ${v.ref}`}</span>
           <span>Progression {p.pct}% · Édité le {new Date().toLocaleDateString("fr-FR")}</span>
         </div>

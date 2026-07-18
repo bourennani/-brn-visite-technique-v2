@@ -75,6 +75,20 @@ export function Select({ label, value, onChange, options }) {
   );
 }
 
+export function Zone({ label, value, onChange, placeholder, hint, rows = 4 }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-stone-500">{label}</span>
+      <textarea
+        value={value ?? ""} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} rows={rows}
+        className="w-full p-3 rounded-xl border-2 border-stone-300 bg-white text-stone-900 text-sm leading-snug focus:border-lime-700 focus:outline-none resize-y"
+      />
+      {hint && <span className="text-[10px] text-stone-400 leading-snug">{hint}</span>}
+    </label>
+  );
+}
+
 export function Chips({ label, value, onChange, options, cols = 4 }) {
   return (
     <div>
