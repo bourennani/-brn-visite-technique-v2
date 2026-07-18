@@ -53,6 +53,7 @@ hors-ligne d'abord, graphe de dépendances en couches sans cycle) devient la
 | 11 | [`11-trajectoire-migration.md`](./11-trajectoire-migration.md) | Comment passer de la PWA actuelle à l'ERP, jalon par jalon, sans rupture. |
 | 12 | [`12-gouvernance-et-roadmap.md`](./12-gouvernance-et-roadmap.md) | Feuille de route pluriannuelle, gouvernance de l'architecture, indicateurs. |
 | — | [`adr/`](./adr/) | Registre des décisions d'architecture (Architecture Decision Records). |
+| — | [`specs/`](./specs/) | Spécifications techniques implémentables : le *comment* dérivé des chapitres (schéma de données, contrats d'API, plan de la Vague 0). |
 | — | [`glossaire.md`](./glossaire.md) | Langage ubiquitaire : le vocabulaire métier partagé. |
 
 ## 3. Les 5 invariants (à ne jamais violer)
