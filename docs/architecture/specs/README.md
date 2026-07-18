@@ -18,7 +18,18 @@ la PWA v2, **sans changer le comportement métier**.
 |---|---|---|
 | 01 | [`01-schema-core-et-etudes.md`](./01-schema-core-et-etudes.md) | Schéma PostgreSQL concret : `core`, `events`, `audit`, `etudes`. Multi-tenant, RLS, JSONB, verrou optimiste, soft delete, Outbox. |
 | 02 | [`02-contrats-api-v1.md`](./02-contrats-api-v1.md) | Contrats REST `/v1` (Tiers, Études, Ouvrages, Documents), enveloppe d'événement, endpoint de synchronisation local-first. |
+| — | [`openapi.v1.yaml`](./openapi.v1.yaml) | **Déclinaison formelle OpenAPI 3.1 de la spec 02** (validée). Source machine des contrats `/v1`. |
 | 03 | [`03-plan-vague-0.md`](./03-plan-vague-0.md) | Plan de construction : lots de travail, critères d'acceptation, ordre, définition de « terminé ». |
+
+### À propos de `openapi.v1.yaml`
+
+C'est la **source formelle et vérifiable** des contrats décrits en prose dans la
+spec 02. En cas d'écart entre les deux, la spec 02 (et les principes / ADR) fait
+foi ; le YAML est corrigé pour s'y conformer. Le fichier est un document
+**OpenAPI 3.1.0 valide** (17 chemins, 32 schémas, toutes les `$ref` internes
+résolues), directement exploitable pour : générer une documentation interactive,
+produire des types/clients, et alimenter les **tests de contrat** (chap. 10 §4)
+qui garantissent que le front, le back et les connecteurs ne divergent jamais.
 
 ## Conventions communes à toutes les specs
 
