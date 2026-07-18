@@ -1,0 +1,1093 @@
+openapi: 3.1.0
+
+# =============================================================================
+#  ERP de pilotage BRN Group — Contrat d'API /v1 (Vague 0)
+#
+#  Source normative : docs/architecture/specs/02-contrats-api-v1.md
+#  Ce fichier est la déclinaison formelle de la spec 02. En cas d'écart, la
+#  spec 02 et les principes (chap. 00) / ADR font foi (voir specs/README.md).
+#
+#  Portée : Vague 0 — Socle + module Études & Métré (ex-Visite v2).
+# =============================================================================
+
+info:
+  title: ERP BRN Group — API v1
+  version: "1.0.0"
+  description: |
+    API REST versionnée du socle et du module **Études & Métré**.
+
+    Conventions transverses (spec 02 §0) :
+    - Authentification par jeton porteur OIDC (`Authorization: Bearer <jwt>`).
+      Le serveur **dérive** `org_id` et les rôles du jeton ; le client ne les
+      choisit jamais (ADR-0004).
+    - Verrou optimiste : les mises à jour envoient `If-Match: "<rev>"`.
+      Une `rev` périmée renvoie `409 Conflict` (chap. 04 §8).
+    - Idempotence des écritures sensibles via `Idempotency-Key`.
+    - Dates ISO 8601 UTC. Identifiants exposés préfixés par type
+      (`party_`, `study_`, `room_`, `doc_`, `evt_`).
+    - Autorisation vérifiée côté serveur ; une ressource hors périmètre renvoie
+      `404` (non-divulgation), jamais un indice de son existence.
+  contact:
+    name: Architecture BRN Group
+  license:
+    name: Usage interne BRN Group
+
+servers:
+  - url: https://{host}/v1
+    description: Base versionnée. Une rupture incompatible crée /v2 ; /v1 reste (P1).
+    variables:
+      host:
+        default: api.example.brn-group.fr
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Session
+    description: Contexte de l'utilisateur courant.
+  - name: Tiers
+    description: Personnes et entreprises (party), rôles multiples.
+  - name: Études
+    description: Études & métré (ex-Visite v2) et leurs pièces.
+  - name: Ouvrages
+    description: Ouvrages dérivés du métré (lecture seule, recalculés).
+  - name: Documents
+    description: Photos, croquis, PDF — références vers l'object storage.
+  - name: Synchronisation
+    description: Local-first — poussée/tirage des mutations terrain.
+
+# =============================================================================
+#  CHEMINS
+# =============================================================================
+paths:
+
+  /me:
+    get:
+      tags: [Session]
+      summary: Utilisateur courant, organisation, rôles et périmètre
+      operationId: getMe
+      responses:
+        "200":
+          description: Contexte de session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionContext"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ---------------------------------------------------------------------------
+  #  TIERS
+  # ---------------------------------------------------------------------------
+  /parties:
+    get:
+      tags: [Tiers]
+      summary: Lister / rechercher des tiers
+      operationId: listParties
+      parameters:
+        - name: role
+          in: query
+          description: Filtrer par rôle joué.
+          schema:
+            $ref: "#/components/schemas/PartyRole"
+        - name: q
+          in: query
+          description: Recherche plein-texte (nom, société, e-mail).
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page de tiers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Party" }
+                  nextCursor:
+                    type: [string, "null"]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Tiers]
+      summary: Créer un tiers
+      operationId: createParty
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PartyCreate" }
+      responses:
+        "201":
+          description: Tiers créé. Émet `Party.Créé`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Party" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /parties/{id}:
+    parameters:
+      - $ref: "#/components/parameters/PartyId"
+    get:
+      tags: [Tiers]
+      summary: Lire un tiers
+      operationId: getParty
+      responses:
+        "200":
+          description: Le tiers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Party" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Tiers]
+      summary: Mettre à jour un tiers (partiel)
+      operationId: updateParty
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PartyUpdate" }
+      responses:
+        "200":
+          description: Tiers mis à jour.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Party" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+    delete:
+      tags: [Tiers]
+      summary: Supprimer un tiers (soft delete + événement)
+      operationId: deleteParty
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Marqué supprimé (jamais d'effacement physique — chap. 04 §8).
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /parties/{id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/PartyId"
+    post:
+      tags: [Tiers]
+      summary: Ajouter un rôle à un tiers
+      operationId: addPartyRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/PartyRole" }
+      responses:
+        "200":
+          description: Rôle ajouté (idempotent si déjà présent).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Party" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------------
+  #  ÉTUDES
+  # ---------------------------------------------------------------------------
+  /studies:
+    get:
+      tags: [Études]
+      summary: Lister / rechercher des études
+      operationId: listStudies
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/StudyStatus" }
+        - name: q
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page d'études (résumés).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/StudySummary" }
+                  nextCursor:
+                    type: [string, "null"]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Études]
+      summary: Créer une étude vide (équivalent newVisite)
+      operationId: createStudy
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ref: { type: string, description: "Référence lisible optionnelle." }
+                clientPartyId: { $ref: "#/components/schemas/PartyIdRef" }
+      responses:
+        "201":
+          description: Étude créée.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Study" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /studies/{id}:
+    parameters:
+      - $ref: "#/components/parameters/StudyId"
+    get:
+      tags: [Études]
+      summary: Lire une étude
+      operationId: getStudy
+      parameters:
+        - name: include
+          in: query
+          description: "include=rooms pour l'agrégat complet."
+          schema:
+            type: string
+            enum: [rooms]
+      responses:
+        "200":
+          description: L'étude (avec ses pièces si demandé).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Study" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Études]
+      summary: Mettre à jour les informations générales (bloc site)
+      operationId: updateStudy
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StudyUpdate" }
+      responses:
+        "200":
+          description: Étude mise à jour.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Study" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [Études]
+      summary: Supprimer une étude (soft delete)
+      operationId: deleteStudy
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204": { description: Marquée supprimée. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /studies/{id}/close:
+    parameters:
+      - $ref: "#/components/parameters/StudyId"
+    post:
+      tags: [Études]
+      summary: Clôturer une étude
+      description: |
+        Passe l'étude en `cloturee`, régénère les ouvrages et émet
+        `Etude.VisiteClôturée` puis `Etude.MétréChiffréPrêt` (écoutés par la
+        Finance en Vague 1 — sans couplage direct, ADR-0005).
+      operationId: closeStudy
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "200":
+          description: Étude clôturée.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Study" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+
+  /studies/{id}/rooms:
+    parameters:
+      - $ref: "#/components/parameters/StudyId"
+    post:
+      tags: [Études]
+      summary: Ajouter une pièce / zone
+      operationId: addRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [typeId, name]
+              properties:
+                typeId:
+                  type: string
+                  description: "Type de pièce (référentiel room_type). Le profil en est dérivé."
+                  examples: [cuisine, sdb, facade, interieur]
+                name: { type: string }
+                level: { type: [string, "null"] }
+      responses:
+        "201":
+          description: Pièce créée.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Room" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /studies/{id}/rooms/reorder:
+    parameters:
+      - $ref: "#/components/parameters/StudyId"
+    post:
+      tags: [Études]
+      summary: Réordonner les pièces d'une étude
+      operationId: reorderRooms
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order:
+                  type: array
+                  items: { $ref: "#/components/schemas/RoomIdRef" }
+      responses:
+        "200":
+          description: Ordre appliqué.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order:
+                    type: array
+                    items: { $ref: "#/components/schemas/RoomIdRef" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /rooms/{roomId}:
+    parameters:
+      - $ref: "#/components/parameters/RoomId"
+    patch:
+      tags: [Études]
+      summary: Mettre à jour une pièce (relevé partiel)
+      description: |
+        Met à jour `name`, `level` et/ou le sous-arbre `survey` (fidèle à
+        `newRoom()` v2). Le serveur rejoue le **cœur pur** (ADR-0006) pour valider
+        les invariants (`qValider` refuse une quantité ≤ 0 → `422`) et régénérer
+        la projection d'ouvrages. Il ne stocke jamais d'agrégat figé (leçon v2.2.1).
+      operationId: updateRoom
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoomUpdate" }
+      responses:
+        "200":
+          description: Pièce mise à jour.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Room" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/BusinessRule" }
+    delete:
+      tags: [Études]
+      summary: Supprimer une pièce (soft delete)
+      operationId: deleteRoom
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204": { description: Marquée supprimée. }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /studies/{id}/ouvrages:
+    parameters:
+      - $ref: "#/components/parameters/StudyId"
+    get:
+      tags: [Ouvrages]
+      summary: Ouvrages dérivés du métré (recalculés, lecture seule)
+      description: |
+        Renvoie la projection recalculée à la demande — jamais un agrégat figé
+        (chap. 02 §5). Source de vérité = relevé + catalogue vivant.
+      operationId: getStudyOuvrages
+      responses:
+        "200":
+          description: Ouvrages recalculés.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [computedAt, ouvrages]
+                properties:
+                  computedAt: { type: string, format: date-time }
+                  ouvrages:
+                    type: array
+                    items: { $ref: "#/components/schemas/Ouvrage" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------------
+  #  DOCUMENTS
+  # ---------------------------------------------------------------------------
+  /documents/upload-url:
+    post:
+      tags: [Documents]
+      summary: Obtenir une URL d'envoi direct vers l'object storage
+      description: |
+        Le binaire ne transite pas par l'API JSON : le client téléverse
+        directement (PUT) vers l'`uploadUrl`, puis confirme via /commit.
+      operationId: createUploadUrl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, mime, bytes, ownerType, ownerId]
+              properties:
+                kind: { $ref: "#/components/schemas/DocumentKind" }
+                mime: { type: string, examples: ["image/jpeg", "application/pdf"] }
+                bytes: { type: integer, format: int64, minimum: 1 }
+                ownerType: { type: string, examples: [study, room, quote] }
+                ownerId: { type: string }
+      responses:
+        "201":
+          description: Emplacement d'envoi prêt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentId, uploadUrl, method]
+                properties:
+                  documentId: { $ref: "#/components/schemas/DocumentIdRef" }
+                  uploadUrl: { type: string, format: uri }
+                  method: { type: string, enum: [PUT] }
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /documents/{id}/commit:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    post:
+      tags: [Documents]
+      summary: Confirmer l'envoi d'un document
+      description: Enregistre l'empreinte et rend le document exploitable. Émet `Document.Versionné`.
+      operationId: commitDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [checksum]
+              properties:
+                checksum: { type: string, description: "Empreinte du binaire (intégrité)." }
+      responses:
+        "200":
+          description: Document confirmé.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: Document immuable déjà émis (acte juridique) — réécriture refusée.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /documents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Documents]
+      summary: Métadonnées d'un document
+      operationId: getDocument
+      responses:
+        "200":
+          description: Métadonnées.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /documents/{id}/content:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [Documents]
+      summary: URL signée temporaire vers le contenu
+      operationId: getDocumentContent
+      responses:
+        "200":
+          description: URL de lecture temporaire.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresAt]
+                properties:
+                  url: { type: string, format: uri }
+                  expiresAt: { type: string, format: date-time }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------------------------
+  #  SYNCHRONISATION (local-first)
+  # ---------------------------------------------------------------------------
+  /sync/push:
+    post:
+      tags: [Synchronisation]
+      summary: Pousser les mutations locales (terrain)
+      description: |
+        File idempotente. Le serveur répond **par mutation** : un conflit isolé
+        ne rejette jamais tout le lot (chap. 09 §4). Une mutation en conflit
+        renvoie l'état serveur courant pour la réconciliation côté client.
+      operationId: syncPush
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SyncPushRequest" }
+      responses:
+        "200":
+          description: Résultat par mutation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncPushResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /sync/pull:
+    get:
+      tags: [Synchronisation]
+      summary: Tirer les changements distants du périmètre de l'appareil
+      description: |
+        Renvoie les agrégats du périmètre (rôle + affectation, chap. 09 §3)
+        modifiés depuis `since`, plus un nouveau curseur. Volume borné.
+      operationId: syncPull
+      parameters:
+        - name: since
+          in: query
+          description: Curseur opaque de la dernière synchro (absent = complet).
+          schema: { type: string }
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [mine]
+            default: mine
+      responses:
+        "200":
+          description: Changements + nouveau curseur.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncPullResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+# =============================================================================
+#  COMPOSANTS
+# =============================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Jeton OIDC. Le serveur en dérive `org_id`, `sub` et les rôles.
+        Le client ne transmet jamais son `org_id` (ADR-0004).
+
+  # --------------------------- Paramètres réutilisables ----------------------
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Taille de page (pagination par curseur).
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Curseur opaque (pas d'offset profond).
+      schema: { type: string }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Révision (`rev`) lue de l'agrégat. Périmée → 409 (verrou optimiste).
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Clé d'idempotence ; rejouer la même clé renvoie le résultat initial.
+      schema: { type: string, format: uuid }
+    PartyId:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PartyIdRef" }
+    StudyId:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/StudyIdRef" }
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/RoomIdRef" }
+    DocumentId:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/DocumentIdRef" }
+
+  # --------------------------- Réponses réutilisables ------------------------
+  responses:
+    Unauthorized:
+      description: Jeton absent ou invalide.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authentifié mais hors périmètre RBAC/ABAC.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Ressource absente **ou** hors périmètre (non-divulgation).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Révision (`rev`) périmée — verrou optimiste.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Entrée invalide (schéma partagé).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BusinessRule:
+      description: Règle métier violée (ex. quantité ≤ 0 — cf. qValider).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  # --------------------------- Schémas ---------------------------------------
+  schemas:
+
+    # ---- Types d'identifiants (documentaires) ----
+    PartyIdRef:
+      type: string
+      pattern: "^party_[A-Za-z0-9]+$"
+      examples: [party_8x2k9d1a]
+    StudyIdRef:
+      type: string
+      pattern: "^study_[A-Za-z0-9]+$"
+      examples: [study_3f7q1w0e]
+    RoomIdRef:
+      type: string
+      pattern: "^room_[A-Za-z0-9]+$"
+      examples: [room_a1b2c3d4]
+    DocumentIdRef:
+      type: string
+      pattern: "^doc_[A-Za-z0-9]+$"
+      examples: [doc_9z8y7x6w]
+    EventIdRef:
+      type: string
+      pattern: "^evt_[A-Za-z0-9]+$"
+      examples: [evt_11223344]
+
+    # ---- Enveloppe d'erreur unique (spec 02 §0) ----
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [validation, unauthorized, forbidden, not_found, conflict, rate_limited, internal]
+            message: { type: string }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  issue: { type: string }
+            correlationId:
+              type: [string, "null"]
+              description: À fournir au support ; retrouvable dans les logs.
+
+    # ---- Session ----
+    SessionContext:
+      type: object
+      required: [user, org, roles]
+      properties:
+        user:
+          type: object
+          required: [id, displayName, email]
+          properties:
+            id: { type: string, examples: [user_5m4n3b2v] }
+            displayName: { type: string }
+            email: { type: string, format: email }
+        org:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string, examples: [org_00000001] }
+            name: { type: string, examples: ["BRN Group"] }
+        roles:
+          type: array
+          items: { type: string, examples: [metreur, conducteur, direction] }
+        scope:
+          type: object
+          description: Attributs ABAC (ex. chantiers affectés).
+          additionalProperties: true
+
+    # ---- Tiers ----
+    PartyKind:
+      type: string
+      enum: [person, company]
+    PartyRole:
+      type: string
+      enum: [client, prospect, supplier, subcontractor, employee]
+    Address:
+      type: object
+      properties:
+        rue: { type: string }
+        cp: { type: string }
+        ville: { type: string }
+        pays: { type: string, default: France }
+    Party:
+      type: object
+      required: [id, rev, kind, roles, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/PartyIdRef" }
+        rev: { type: integer, minimum: 1 }
+        kind: { $ref: "#/components/schemas/PartyKind" }
+        firstName: { type: [string, "null"] }
+        lastName: { type: [string, "null"] }
+        companyName: { type: [string, "null"] }
+        siret: { type: [string, "null"] }
+        email: { type: [string, "null"], format: email }
+        phone: { type: [string, "null"] }
+        address: { $ref: "#/components/schemas/Address" }
+        notes: { type: [string, "null"] }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/PartyRole" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    PartyCreate:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/PartyKind" }
+        firstName: { type: string }
+        lastName: { type: string }
+        companyName: { type: string }
+        siret: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        address: { $ref: "#/components/schemas/Address" }
+        notes: { type: string }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/PartyRole" }
+    PartyUpdate:
+      type: object
+      required: [rev]
+      description: Mise à jour partielle. `rev` obligatoire (verrou optimiste).
+      properties:
+        rev: { type: integer, minimum: 1 }
+        firstName: { type: string }
+        lastName: { type: string }
+        companyName: { type: string }
+        siret: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        address: { $ref: "#/components/schemas/Address" }
+        notes: { type: string }
+
+    # ---- Études ----
+    StudyStatus:
+      type: string
+      enum: [en_cours, cloturee, archivee]
+    StudySummary:
+      type: object
+      required: [id, rev, status, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/StudyIdRef" }
+        rev: { type: integer, minimum: 1 }
+        ref: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/StudyStatus" }
+        clientPartyId: { oneOf: [ { $ref: "#/components/schemas/PartyIdRef" }, { type: "null" } ] }
+        roomCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    Study:
+      type: object
+      required: [id, rev, status, site, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/StudyIdRef" }
+        rev: { type: integer, minimum: 1 }
+        ref: { type: [string, "null"] }
+        status: { $ref: "#/components/schemas/StudyStatus" }
+        clientPartyId: { oneOf: [ { $ref: "#/components/schemas/PartyIdRef" }, { type: "null" } ] }
+        opportunityId: { type: [string, "null"], description: "CRM (Vague 1) — vide en Vague 0." }
+        chantierId: { type: [string, "null"], description: "Chantiers (Vague 2) — vide en Vague 0." }
+        site:
+          $ref: "#/components/schemas/StudySite"
+        rooms:
+          type: array
+          description: Présent si include=rooms.
+          items: { $ref: "#/components/schemas/Room" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    StudySite:
+      type: object
+      description: |
+        Informations générales, structure JSONB fidèle à la v2 (renommée depuis
+        `chantier` pour éviter la collision avec le module Chantiers — spec 01 §4.1).
+        Champs libres ; exemples ci-dessous, non exhaustifs.
+      additionalProperties: true
+      properties:
+        adresse: { type: string }
+        ville: { type: string }
+        cp: { type: string }
+        dateVisite: { type: string, format: date }
+        metreur: { type: string }
+        typeBien: { type: string }
+        occupation: { type: string }
+        amiante: { type: string }
+        plomb: { type: string }
+        demandeClient: { type: string }
+        contraintes: { type: string }
+        observations: { type: string }
+    StudyUpdate:
+      type: object
+      required: [rev]
+      properties:
+        rev: { type: integer, minimum: 1 }
+        ref: { type: string }
+        clientPartyId: { $ref: "#/components/schemas/PartyIdRef" }
+        site: { $ref: "#/components/schemas/StudySite" }
+
+    # ---- Pièces / zones ----
+    Room:
+      type: object
+      required: [id, rev, studyId, typeId, name, position, survey]
+      properties:
+        id: { $ref: "#/components/schemas/RoomIdRef" }
+        rev: { type: integer, minimum: 1 }
+        studyId: { $ref: "#/components/schemas/StudyIdRef" }
+        position: { type: integer, minimum: 0 }
+        typeId:
+          type: string
+          description: "Type de pièce. Le profil métier en est **dérivé**, jamais stocké."
+          examples: [cuisine, sdb, facade, interieur]
+        name: { type: string }
+        level: { type: [string, "null"] }
+        survey:
+          $ref: "#/components/schemas/RoomSurvey"
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: [string, "null"], format: date-time }
+    RoomSurvey:
+      type: object
+      description: |
+        Relevé fin, structure JSONB fidèle à `newRoom()` v2 (zones, ouvertures,
+        murs, sol, plafond, plinthes, faience, doublages, peinture, elec, facade,
+        cuisine, travaux, prestations, q, notes…). Non fracturé (chap. 04 §4).
+        Le serveur rejoue le cœur pur pour valider et régénérer les ouvrages.
+      additionalProperties: true
+    RoomUpdate:
+      type: object
+      required: [rev]
+      properties:
+        rev: { type: integer, minimum: 1 }
+        name: { type: string }
+        level: { type: string }
+        survey: { $ref: "#/components/schemas/RoomSurvey" }
+
+    # ---- Ouvrage (dérivé) ----
+    OuvrageOrigin:
+      type: string
+      enum: [auto, valide, manuel]
+      description: États de validation de quantité v2 (calc.js).
+    Ouvrage:
+      type: object
+      required: [lot, label, quantity, unit, origin]
+      properties:
+        roomId: { oneOf: [ { $ref: "#/components/schemas/RoomIdRef" }, { type: "null" } ] }
+        lot: { type: string, description: "Corps d'état (référentiel trade).", examples: [sols, elec, peint] }
+        label: { type: string, examples: ["Fourniture et pose de carrelage"] }
+        quantity: { type: number, minimum: 0 }
+        unit: { type: string, examples: [m2, ml, u, forfait] }
+        origin: { $ref: "#/components/schemas/OuvrageOrigin" }
+
+    # ---- Documents ----
+    DocumentKind:
+      type: string
+      enum: [photo, sketch, report_pdf, quote_pdf, other]
+    Document:
+      type: object
+      required: [id, kind, mime, bytes, ownerType, ownerId, version, createdAt]
+      properties:
+        id: { $ref: "#/components/schemas/DocumentIdRef" }
+        kind: { $ref: "#/components/schemas/DocumentKind" }
+        mime: { type: string }
+        bytes: { type: integer, format: int64 }
+        checksum: { type: [string, "null"] }
+        ownerType: { type: string }
+        ownerId: { type: string }
+        version: { type: integer, minimum: 1 }
+        isImmutable: { type: boolean, default: false }
+        createdAt: { type: string, format: date-time }
+
+    # ---- Synchronisation ----
+    Mutation:
+      type: object
+      required: [id, at, op, aggregateId]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifiant de mutation (idempotence — rejouer ne duplique pas).
+        at: { type: string, format: date-time }
+        op:
+          type: string
+          description: Opération locale.
+          examples: [study.create, study.update, room.create, room.update, room.delete]
+        aggregateId: { type: string }
+        baseRev:
+          type: [integer, "null"]
+          description: Révision de base connue localement (absente pour une création).
+        patch:
+          type: object
+          description: Modification partielle (pour un update).
+          additionalProperties: true
+        data:
+          type: object
+          description: Données complètes (pour une création).
+          additionalProperties: true
+    SyncPushRequest:
+      type: object
+      required: [deviceId, mutations]
+      properties:
+        deviceId: { type: string, examples: [dev_ipad_chantier_01] }
+        mutations:
+          type: array
+          items: { $ref: "#/components/schemas/Mutation" }
+    MutationResult:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [applied, conflict, rejected]
+        newRev:
+          type: [integer, "null"]
+          description: Nouvelle révision si `applied`.
+        current:
+          type: [object, "null"]
+          description: État serveur courant si `conflict` (pour réconciliation).
+          properties:
+            rev: { type: integer }
+            aggregate:
+              type: object
+              additionalProperties: true
+        error:
+          oneOf: [ { $ref: "#/components/schemas/Error" }, { type: "null" } ]
+          description: Présent si `rejected`.
+    SyncPushResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/MutationResult" }
+    SyncChange:
+      type: object
+      required: [aggregateType, aggregateId, rev, data]
+      properties:
+        aggregateType:
+          type: string
+          enum: [study, room, party, document]
+        aggregateId: { type: string }
+        rev: { type: integer }
+        deleted: { type: boolean, default: false }
+        data:
+          type: object
+          additionalProperties: true
+    SyncPullResponse:
+      type: object
+      required: [changes, nextCursor]
+      properties:
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/SyncChange" }
+        nextCursor: { type: [string, "null"] }
+
+    # ---- Enveloppe d'événement (contrat de publication — spec 02 §6) ----
+    EventEnvelope:
+      type: object
+      description: |
+        Forme de tout événement publié (chap. 06 §3). Documentée ici comme contrat
+        pour les consommateurs (modules, IA, connecteurs, automatisations). Elle
+        n'est pas exposée en HTTP dans la Vague 0 mais fait partie du contrat.
+      required: [id, type, version, org_id, occurredAt, actor, aggregateId, correlationId, payload]
+      properties:
+        id: { $ref: "#/components/schemas/EventIdRef" }
+        type:
+          type: string
+          examples: [Etude.MétréChiffréPrêt, Etude.VisiteClôturée, Party.Créé, Document.Versionné]
+        version: { type: integer, minimum: 1 }
+        org_id: { type: string, examples: [org_00000001] }
+        occurredAt: { type: string, format: date-time }
+        actor:
+          type: object
+          required: [via]
+          properties:
+            userId: { type: [string, "null"] }
+            via:
+              type: string
+              enum: [web, mobile, automation, connector]
+        aggregateId: { type: string }
+        correlationId: { type: string }
+        causationId: { type: [string, "null"] }
+        payload:
+          type: object
+          additionalProperties: true
