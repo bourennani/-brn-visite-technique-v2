@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BRN Group — Tableau de bord Pilotage</title>
+<meta name="description" content="Tableau de bord de pilotage pour le dirigeant : chantiers, marge prévue vs réalisée, trésorerie, alertes." />
+<!--
+  ====================================================================
+  BRN GROUP — TABLEAU DE BORD PILOTAGE  (application autonome)
+
+  Application INDÉPENDANTE de l'app de visite technique. Aucun fichier
+  de src/ n'est utilisé ni modifié : tout (styles, logique, données de
+  démonstration) est en ligne dans ce seul fichier. Elle s'ouvre
+  directement dans un navigateur, fonctionne hors-ligne, sans build.
+
+  Elle matérialise le module « Chantiers / Pilotage » de l'architecture
+  ERP (voir docs/architecture/) : la vision du dirigeant en un écran —
+  marge prévue vs réalisée, trésorerie, retards, alertes.
+
+  Les données ci-dessous sont FICTIVES (démonstration). Dans l'ERP réel,
+  elles proviendront des événements de domaine (Finance, RH, Stock…)
+  via les contrats /v1 ; ici elles sont figées dans DATA pour une démo
+  autonome. La logique de calcul (marge projetée, alertes) est, elle,
+  représentative de la cible.
+  ====================================================================
+-->
+<style>
+  :root {
+    --dark:#3C6410; --mid:#5E9918; --light:#8BC53F; --pale:#EEF5E4; --ink:#14180F;
+    --bg:#F5F5F4; --card:#FFFFFF; --line:#E7E5E4; --muted:#78716C; --muted2:#A8A29E;
+    --ok:#15803D; --okbg:#DCFCE7; --warn:#B45309; --warnbg:#FEF3C7; --bad:#B91C1C; --badbg:#FEE2E2;
+    --radius:16px; --shadow:0 1px 2px rgba(20,24,15,.06),0 8px 24px rgba(20,24,15,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#14180F; --card:#1D2416; --line:#2E3A22; --ink:#F5F7F0; --muted:#A8B29A; --muted2:#7C8A6A;
+      --pale:#243019; --okbg:#14331F; --warnbg:#3A2E0E; --badbg:#3A1616;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { -webkit-text-size-adjust:100%; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.45;
+    padding:max(16px,env(safe-area-inset-top)) 16px 48px; -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:1180px; margin:0 auto; }
+
+  /* En-tête */
+  header { display:flex; align-items:center; gap:14px; padding:6px 0 20px; flex-wrap:wrap; }
+  .logo { width:46px; height:46px; border-radius:12px; background:var(--pale);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .logo svg { width:26px; height:26px; }
+  .title h1 { font-size:20px; font-weight:800; letter-spacing:-.01em; }
+  .title p { font-size:11px; font-weight:700; letter-spacing:.06em; color:var(--mid); text-transform:uppercase; }
+  .period { margin-left:auto; display:flex; gap:6px; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:4px; box-shadow:var(--shadow); }
+  .period button { border:0; background:transparent; color:var(--muted); font-weight:700; font-size:12px;
+    padding:7px 12px; border-radius:9px; cursor:pointer; font-family:inherit; }
+  .period button[aria-pressed="true"] { background:var(--dark); color:#fff; }
+
+  /* Grille KPI */
+  .kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:12px; }
+  @media (max-width:900px){ .kpis{ grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:520px){ .kpis{ grid-template-columns:1fr 1fr;} }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
+  .kpi .lbl { font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .kpi .val { font-size:26px; font-weight:800; letter-spacing:-.02em; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .kpi .sub { font-size:12px; color:var(--muted); margin-top:2px; }
+  .kpi .tag { display:inline-block; font-size:11px; font-weight:800; padding:2px 8px; border-radius:999px; margin-top:8px; }
+  .tag.ok{ background:var(--okbg); color:var(--ok);} .tag.warn{ background:var(--warnbg); color:var(--warn);} .tag.bad{ background:var(--badbg); color:var(--bad);}
+  .kpi .bar { position:absolute; left:0; top:0; bottom:0; width:4px; }
+
+  /* Sections */
+  .grid { display:grid; grid-template-columns:1.7fr 1fr; gap:12px; align-items:start; }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr;} }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+  .card h2 { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--dark);
+    padding:16px 18px 10px; display:flex; align-items:center; gap:8px; }
+  .card h2 .count { margin-left:auto; font-size:11px; color:var(--muted); font-weight:700; letter-spacing:0; text-transform:none; }
+
+  /* Chantiers */
+  .filters { display:flex; gap:6px; padding:0 18px 12px; flex-wrap:wrap; }
+  .filters button { border:1px solid var(--line); background:transparent; color:var(--muted); font-weight:700; font-size:12px;
+    padding:6px 11px; border-radius:9px; cursor:pointer; font-family:inherit; }
+  .filters button[aria-pressed="true"]{ background:var(--dark); color:#fff; border-color:var(--dark); }
+  .chantier { padding:14px 18px; border-top:1px solid var(--line); }
+  .chantier .top { display:flex; align-items:center; gap:10px; }
+  .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .chantier .nom { font-weight:800; font-size:15px; }
+  .chantier .meta { font-size:12px; color:var(--muted); }
+  .badge { margin-left:auto; font-size:11px; font-weight:800; padding:3px 9px; border-radius:999px; white-space:nowrap; }
+  .prog { height:8px; border-radius:999px; background:var(--line); margin:10px 0 8px; overflow:hidden; }
+  .prog > i { display:block; height:100%; border-radius:999px; background:var(--mid); }
+  .figs { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; font-variant-numeric:tabular-nums; }
+  @media (max-width:520px){ .figs{ grid-template-columns:repeat(2,1fr);} }
+  .fig .k { font-size:10px; font-weight:700; color:var(--muted2); text-transform:uppercase; letter-spacing:.03em; }
+  .fig .v { font-size:14px; font-weight:800; }
+  .fig .v small { font-size:11px; color:var(--muted); font-weight:700; }
+
+  /* Alertes */
+  .alert { display:flex; gap:11px; padding:12px 18px; border-top:1px solid var(--line); align-items:flex-start; }
+  .alert:first-of-type{ border-top:0; }
+  .alert .ic { width:26px; height:26px; border-radius:8px; flex-shrink:0; display:flex; align-items:center; justify-content:center; margin-top:1px; }
+  .alert .ic svg{ width:15px; height:15px; }
+  .alert .txt b { font-size:13px; font-weight:800; display:block; }
+  .alert .txt span { font-size:12px; color:var(--muted); }
+  .ic.bad{ background:var(--badbg); color:var(--bad);} .ic.warn{ background:var(--warnbg); color:var(--warn);} .ic.ok{ background:var(--okbg); color:var(--ok);}
+
+  /* Graphe CA */
+  .chart { padding:8px 18px 18px; }
+  .chart svg { width:100%; height:auto; display:block; }
+  .chart .axis { fill:var(--muted2); font-size:10px; font-weight:700; }
+  .legend { display:flex; gap:16px; padding:0 18px 16px; font-size:11px; color:var(--muted); font-weight:700; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+
+  footer { text-align:center; color:var(--muted2); font-size:11px; margin-top:26px; line-height:1.7; }
+  .demo { display:inline-block; background:var(--warnbg); color:var(--warn); font-weight:800; font-size:11px;
+    padding:3px 10px; border-radius:999px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#3C6410" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/>
+      </svg>
+    </div>
+    <div class="title">
+      <h1>Tableau de bord — Pilotage</h1>
+      <p>BRN Group · Direction</p>
+    </div>
+    <div class="period" role="group" aria-label="Période">
+      <button data-period="mois">Mois</button>
+      <button data-period="trim">Trimestre</button>
+      <button data-period="annee" aria-pressed="true">Année</button>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-label="Indicateurs clés"></section>
+
+  <div class="grid">
+    <div>
+      <section class="card">
+        <h2>Chantiers <span class="count" id="chCount"></span></h2>
+        <div class="filters" id="filters" role="group" aria-label="Filtrer les chantiers">
+          <button data-f="tous" aria-pressed="true">Tous</button>
+          <button data-f="en_cours">En cours</button>
+          <button data-f="retard">En retard</button>
+          <button data-f="receptionne">Réceptionnés</button>
+          <button data-f="a_venir">À venir</button>
+        </div>
+        <div id="chantiers"></div>
+      </section>
+
+      <section class="card" style="margin-top:12px">
+        <h2>Chiffre d'affaires facturé <span class="count">2026 · k€ HT</span></h2>
+        <div class="legend">
+          <span><i style="background:var(--mid)"></i>Facturé</span>
+          <span><i style="background:var(--line)"></i>Objectif</span>
+        </div>
+        <div class="chart" id="chart"></div>
+      </section>
+    </div>
+
+    <div>
+      <section class="card">
+        <h2>Alertes &amp; actions <span class="count" id="alCount"></span></h2>
+        <div id="alertes"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <span class="demo">DONNÉES DE DÉMONSTRATION</span><br>
+    Application autonome de pilotage — module « Chantiers » de l'ERP BRN Group.<br>
+    Indépendante de l'application de visite technique. Fonctionne hors-ligne, sans serveur.
+  </footer>
+</div>
+
+<script>
+/* ====================================================================
+   DONNÉES DE DÉMONSTRATION
+   Dans l'ERP réel, ces chiffres seront des projections alimentées par
+   les événements de domaine (Finance, RH, Stock, Chantiers) via /v1.
+   Ici : figés, pour une application de démonstration autonome.
+   budgetVendu  : montant HT vendu au client (devis accepté)
+   deboursePrevu: coût de revient prévu au chiffrage
+   coutReel     : coût de revient engagé à date (heures + achats + ST)
+   ==================================================================== */
+const DATA = {
+  chantiers: [
+    { ref:"CH-2026-014", nom:"Rénovation appartement Dupont", client:"M. Dupont", ville:"Bondy",
+      statut:"en_cours", avancement:62, budgetVendu:34800, deboursePrevu:26100, coutReel:16200,
+      retardJours:0, factureImpaye:0, reserves:0, finGarantieJours:null },
+    { ref:"CH-2026-011", nom:"Ravalement façade SCI Martin", client:"SCI Martin", ville:"Bondy",
+      statut:"en_cours", avancement:40, budgetVendu:58200, deboursePrevu:43600, coutReel:26800,
+      retardJours:9, factureImpaye:0, reserves:0, finGarantieJours:null },
+    { ref:"CH-2026-008", nom:"Extension maison Lefèvre", client:"Mme Lefèvre", ville:"Le Raincy",
+      statut:"en_cours", avancement:78, budgetVendu:129000, deboursePrevu:96700, coutReel:76000,
+      retardJours:0, factureImpaye:14200, reserves:0, finGarantieJours:null },
+    { ref:"CH-2026-004", nom:"Réfection toiture Copropriété Voltaire", client:"Synd. Voltaire", ville:"Bondy",
+      statut:"receptionne", avancement:100, budgetVendu:47500, deboursePrevu:35600, coutReel:38900,
+      retardJours:0, factureImpaye:0, reserves:2, finGarantieJours:410 },
+    { ref:"CH-2025-051", nom:"Aménagement local commercial Nour", client:"SARL Nour", ville:"Pantin",
+      statut:"receptionne", avancement:100, budgetVendu:82300, deboursePrevu:61700, coutReel:60200,
+      retardJours:0, factureImpaye:0, reserves:0, finGarantieJours:48 },
+    { ref:"CH-2026-019", nom:"Rénovation cuisine + SdB Benali", client:"M. Benali", ville:"Noisy-le-Sec",
+      statut:"a_venir", avancement:0, budgetVendu:41500, deboursePrevu:31100, coutReel:0,
+      retardJours:0, factureImpaye:0, reserves:0, finGarantieJours:null },
+  ],
+  // CA facturé par mois (k€ HT) et objectif mensuel
+  caMensuel: [28,34,41,39,52,47,58,0,0,0,0,0],
+  objectifMensuel: 45,
+  tresorerie: { soldeActuel:72400, encaissementsPrevus:96700, decaissementsPrevus:81200 },
+};
+
+/* ---- Utilitaires ---- */
+const euro = n => (n>=1000 ? (n/1000).toLocaleString("fr-FR",{maximumFractionDigits:1})+" k€" : n.toLocaleString("fr-FR")+" €");
+const pct  = n => (n>=0?"":"−") + Math.abs(n).toLocaleString("fr-FR",{maximumFractionDigits:1}) + " %";
+const MOIS = ["J","F","M","A","M","J","J","A","S","O","N","D"];
+const STATUTS = {
+  en_cours:{label:"En cours", cls:"warn"}, receptionne:{label:"Réceptionné", cls:"ok"},
+  a_venir:{label:"À venir", cls:"ok"}, termine:{label:"Terminé", cls:"ok"},
+};
+
+/* Marge prévue et marge réalisée PROJETÉE (coût final estimé à l'avancement). */
+function marges(c){
+  const prevue = c.budgetVendu>0 ? (c.budgetVendu - c.deboursePrevu)/c.budgetVendu*100 : 0;
+  const coutProjete = c.avancement>0 ? c.coutReel/(c.avancement/100) : c.deboursePrevu;
+  const realisee = c.budgetVendu>0 ? (c.budgetVendu - coutProjete)/c.budgetVendu*100 : 0;
+  return { prevue, realisee, derive: realisee - prevue, coutProjete };
+}
+/* Santé d'un chantier : rouge si la marge dérive fort ou retard important. */
+function sante(c){
+  const m = marges(c);
+  const derive = c.statut==="en_cours" ? m.derive : 0; // marge figée une fois réceptionné
+  if (derive < -6 || c.retardJours >= 10 || c.reserves>0) return {color:"var(--bad)", niveau:2};
+  if (derive < -2 || c.retardJours > 0 || c.factureImpaye>0) return {color:"#D97706", niveau:1};
+  return {color:"var(--mid)", niveau:0};
+}
+
+/* ---- KPIs ---- */
+function renderKpis(){
+  const actifs = DATA.chantiers.filter(c=>c.statut!=="a_venir");
+  const caSigne = DATA.chantiers.reduce((s,c)=>s+c.budgetVendu,0);
+  const enCours = DATA.chantiers.filter(c=>c.statut==="en_cours").length;
+  const retard  = DATA.chantiers.filter(c=>c.retardJours>0).length;
+  const impayes = DATA.chantiers.reduce((s,c)=>s+c.factureImpaye,0);
+  /* Marge pondérée par le budget : un gros chantier pèse plus qu'un petit. */
+  const wsum = actifs.reduce((s,c)=>s+c.budgetVendu,0) || 1;
+  const mp = actifs.reduce((s,c)=>s+marges(c).prevue*c.budgetVendu,0)/wsum;
+  const mr = actifs.reduce((s,c)=>s+marges(c).realisee*c.budgetVendu,0)/wsum;
+  const tr = DATA.tresorerie.soldeActuel + DATA.tresorerie.encaissementsPrevus - DATA.tresorerie.decaissementsPrevus;
+
+  const derive = mr - mp;
+  const items = [
+    { lbl:"CA signé", val:euro(caSigne), sub:DATA.chantiers.length+" chantiers", bar:"var(--dark)",
+      tag:{cls:"ok", txt:"Portefeuille"} },
+    { lbl:"Marge prévue", val:pct(mp), sub:"moyenne pondérée", bar:"var(--mid)",
+      tag:{cls:"ok", txt:"Objectif chiffrage"} },
+    { lbl:"Marge réalisée", val:pct(mr), sub:"projetée à l'avancement", bar: derive<-2?"var(--bad)":"var(--mid)",
+      tag: derive<-2?{cls:"bad", txt:"Dérive "+pct(derive)}:{cls:"ok", txt:"Conforme"} },
+    { lbl:"Trésorerie projetée", val:euro(tr), sub:"solde + encaissements", bar:"var(--mid)",
+      tag: impayes>0?{cls:"warn", txt:euro(impayes)+" impayés"}:{cls:"ok", txt:"Saine"} },
+    { lbl:"Chantiers en cours", val:String(enCours), sub: retard>0? retard+" en retard":"aucun retard", bar: retard>0?"var(--bad)":"var(--mid)",
+      tag: retard>0?{cls:"bad", txt:retard+" en retard"}:{cls:"ok", txt:"Dans les temps"} },
+  ];
+  document.getElementById("kpis").innerHTML = items.map(k=>`
+    <div class="kpi">
+      <span class="bar" style="background:${k.bar}"></span>
+      <div class="lbl">${k.lbl}</div>
+      <div class="val">${k.val}</div>
+      <div class="sub">${k.sub}</div>
+      <span class="tag ${k.tag.cls}">${k.tag.txt}</span>
+    </div>`).join("");
+}
+
+/* ---- Chantiers ---- */
+let filtre = "tous";
+function passe(c){
+  if (filtre==="tous") return true;
+  if (filtre==="retard") return c.retardJours>0;
+  return c.statut===filtre;
+}
+function renderChantiers(){
+  const list = DATA.chantiers.filter(passe);
+  document.getElementById("chCount").textContent = list.length + " affiché"+(list.length>1?"s":"");
+  document.getElementById("chantiers").innerHTML = list.map(c=>{
+    const m = marges(c), s = sante(c), st = STATUTS[c.statut];
+    const dcls = s.niveau===2?"bad":s.niveau===1?"warn":"ok";
+    return `
+    <div class="chantier">
+      <div class="top">
+        <span class="dot" style="background:${s.color}"></span>
+        <div>
+          <div class="nom">${c.nom}</div>
+          <div class="meta">${c.ref} · ${c.client} · ${c.ville}${c.retardJours>0?` · <b style="color:var(--bad)">retard ${c.retardJours} j</b>`:""}</div>
+        </div>
+        <span class="badge tag ${dcls}">${st.label}</span>
+      </div>
+      <div class="prog"><i style="width:${c.avancement}%"></i></div>
+      <div class="figs">
+        <div class="fig"><div class="k">Avancement</div><div class="v">${c.avancement}%</div></div>
+        <div class="fig"><div class="k">Vendu HT</div><div class="v">${euro(c.budgetVendu)}</div></div>
+        <div class="fig"><div class="k">Coût à date</div><div class="v">${euro(c.coutReel)}</div></div>
+        <div class="fig"><div class="k">Marge prév./réal.</div>
+          <div class="v" style="color:${m.derive<-2?'var(--bad)':'inherit'}">${pct(m.prevue)} <small>→ ${pct(m.realisee)}</small></div></div>
+      </div>
+    </div>`;
+  }).join("") || `<div class="chantier" style="color:var(--muted)">Aucun chantier pour ce filtre.</div>`;
+}
+
+/* ---- Alertes dérivées (règles déterministes, cf. chap. 08 Automatisations) ---- */
+const IC = {
+  bad:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  warn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  ok:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+};
+function renderAlertes(){
+  const A = [];
+  DATA.chantiers.forEach(c=>{
+    const m = marges(c);
+    /* La dérive de marge ne concerne que les chantiers en cours : sur un
+       chantier réceptionné, la marge est réalisée et figée (l'alerte utile
+       devient « réserves à lever »). */
+    if (c.statut==="en_cours") {
+      if (m.derive < -6) A.push({lvl:"bad", t:`Dérive de marge — ${c.nom}`, s:`Marge projetée ${pct(m.realisee)} contre ${pct(m.prevue)} prévue. Coût à surveiller.`});
+      else if (m.derive < -2) A.push({lvl:"warn", t:`Marge sous objectif — ${c.nom}`, s:`Écart de ${pct(m.derive)} sur la marge prévue.`});
+    }
+    if (c.retardJours >= 10) A.push({lvl:"bad", t:`Retard important — ${c.nom}`, s:`${c.retardJours} jours de retard sur le planning.`});
+    else if (c.retardJours > 0) A.push({lvl:"warn", t:`Retard — ${c.nom}`, s:`${c.retardJours} jours de retard à rattraper.`});
+    if (c.factureImpaye > 0) A.push({lvl:"warn", t:`Facture impayée — ${c.client}`, s:`${euro(c.factureImpaye)} en attente de règlement.`});
+    if (c.reserves > 0) A.push({lvl:"bad", t:`Réserves non levées — ${c.nom}`, s:`${c.reserves} réserve(s) à lever pour clôturer.`});
+    if (c.finGarantieJours!==null && c.finGarantieJours < 60) A.push({lvl:"warn", t:`Fin de garantie proche — ${c.nom}`, s:`Garantie de parfait achèvement dans ${c.finGarantieJours} jours. Proposer une maintenance ?`});
+  });
+  const order = {bad:0, warn:1, ok:2};
+  A.sort((a,b)=>order[a.lvl]-order[b.lvl]);
+  if (!A.length) A.push({lvl:"ok", t:"Tout est sous contrôle", s:"Aucune alerte active sur le portefeuille."});
+  document.getElementById("alCount").textContent = A.filter(a=>a.lvl!=="ok").length + " active"+(A.filter(a=>a.lvl!=="ok").length>1?"s":"");
+  document.getElementById("alertes").innerHTML = A.map(a=>`
+    <div class="alert">
+      <div class="ic ${a.lvl}">${IC[a.lvl]}</div>
+      <div class="txt"><b>${a.t}</b><span>${a.s}</span></div>
+    </div>`).join("");
+}
+
+/* ---- Graphe CA (SVG, sans dépendance) ---- */
+function renderChart(){
+  const W=560, H=200, pad=28, n=DATA.caMensuel.length;
+  const max = Math.max(DATA.objectifMensuel, ...DATA.caMensuel) * 1.15;
+  const bw = (W - pad*2) / n * 0.6, gap = (W - pad*2) / n;
+  const y = v => H - pad - (v/max)*(H - pad*1.6);
+  let bars = "", obj = "";
+  DATA.caMensuel.forEach((v,i)=>{
+    const x = pad + i*gap + (gap-bw)/2;
+    const h = Math.max(0, H - pad - y(v));
+    bars += `<rect x="${x.toFixed(1)}" y="${y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${v?'var(--mid)':'var(--line)'}"></rect>`;
+    bars += `<text class="axis" x="${(x+bw/2).toFixed(1)}" y="${H-pad+14}" text-anchor="middle">${MOIS[i]}</text>`;
+    if (v) bars += `<text class="axis" x="${(x+bw/2).toFixed(1)}" y="${(y(v)-5).toFixed(1)}" text-anchor="middle" fill="var(--dark)">${v}</text>`;
+  });
+  const oy = y(DATA.objectifMensuel).toFixed(1);
+  obj = `<line x1="${pad}" y1="${oy}" x2="${W-pad}" y2="${oy}" stroke="var(--muted2)" stroke-width="1.5" stroke-dasharray="5 4"></line>
+         <text class="axis" x="${W-pad}" y="${(oy-5)}" text-anchor="end">objectif ${DATA.objectifMensuel}k</text>`;
+  document.getElementById("chart").innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Chiffre d'affaires facturé par mois">${obj}${bars}</svg>`;
+}
+
+/* ---- Interactions ---- */
+document.getElementById("filters").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  filtre = b.dataset.f;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", x===b));
+  renderChantiers();
+});
+document.querySelector(".period").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", x===b));
+  // Démo : la période est illustrative (les données fournies couvrent l'année).
+});
+
+/* ---- Rendu initial ---- */
+renderKpis(); renderChantiers(); renderAlertes(); renderChart();
+</script>
+</body>
+</html>
