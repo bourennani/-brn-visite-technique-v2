@@ -119,7 +119,7 @@ export function VisitesScreen({ visites, onOpen, onNew, onDup, onDel, onStatut }
 
 /* -------------------------------------------------------------------- */
 
-export function InfosScreen({ v, set }) {
+export function InfosScreen({ v, set, onValider }) {
   const c = (k, val) => set({ ...v, client: { ...v.client, [k]: val } });
   const h = (k, val) => set({ ...v, chantier: { ...v.chantier, [k]: val } });
   return (
@@ -225,6 +225,13 @@ export function InfosScreen({ v, set }) {
           />
         </div>
       </Section>
+
+      <div className="no-print fixed bottom-0 left-0 right-0 z-20 p-3 bg-white/95 backdrop-blur border-t-2 border-stone-200"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+        <Btn onClick={onValider} className="w-full">
+          <CheckCircle2 size={20} /> {(v.rooms || []).length ? "Enregistrer et voir les pièces" : "Créer la visite"}
+        </Btn>
+      </div>
     </div>
   );
 }

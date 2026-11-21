@@ -55,6 +55,20 @@ export default function App() {
     }, 600);
   }, []);
 
+  /* Enregistrement immédiat (sans attendre l'autosave) puis passage aux pièces */
+  const validerInfos = async () => {
+    if (!v) return;
+    clearTimeout(timer.current);
+    try {
+      await Store.saveVisite(v);
+      setSaved(true);
+      toast(v.rooms.length ? "Informations enregistrées" : "Visite créée");
+    } catch {
+      toast("Enregistrement impossible");
+    }
+    setScreen("rooms");
+  };
+
   const newV = async () => {
     const nv = newVisite();
     nv.ref = `BRN-${new Date().getFullYear()}-${String(visites.length + 1).padStart(3, "0")}`;
@@ -219,7 +233,7 @@ export default function App() {
         <VisitesScreen visites={visites} onNew={newV} onDup={dupV} onDel={delV} onStatut={statutV}
           onOpen={(id) => { setVid(id); setScreen("rooms"); }} />
       )}
-      {screen === "infos" && v && <InfosScreen v={v} set={setV} />}
+      {screen === "infos" && v && <InfosScreen v={v} set={setV} onValider={validerInfos} />}
       {screen === "rooms" && v && (
         <RoomsScreen v={v} set={setV} onOpen={(id) => { setRoomId(id); setScreen("room"); }}
           onAdd={() => setScreen("types")} onRecap={() => setScreen("recap")} onReport={() => setScreen("report")} />
